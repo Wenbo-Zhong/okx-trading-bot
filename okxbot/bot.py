@@ -446,6 +446,10 @@ class Bot:
         # Prefer SWAP; if Spot-mode blocks perps, fall back to SPOT (long-only) so demo can still learn.
         self.inst_type = "SPOT" if self.swaps_blocked else "SWAP"
         self.instr, self.last_px = {}, {}
+        if self.live and self.st.get("plan_pending"):
+            from okxbot.plan import recover_plan_orders
+            self.spot = SpotManager(self)
+            recover_plan_orders(self)
         try:
             if self.swaps_blocked:
                 self.ev("SWAP blocked by account mode -> trading SPOT (long-only, 1x) until Futures/Multi-currency is enabled in OKX Demo UI")

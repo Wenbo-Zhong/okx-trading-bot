@@ -399,7 +399,7 @@ class SpotManager:
             time.sleep(0.5)
         raise OKXError("spot stop quantity not confirmed")
 
-    def exit_long(self, inst_id, reason):
+    def exit_long(self, inst_id, reason, size=None):
         rec = self.st["longs"].get(inst_id)
         if not rec or not self.b.live:
             return
@@ -420,7 +420,7 @@ class SpotManager:
                 needs_stop = True
             needs_stop = True  # also protect positions that had no algo
             avail = self.balances().get(base, {}).get("avail", 0.0)
-            sz = _rd(min(avail, rec["qty"]), ins["lotSz"])
+            sz = _rd(min(avail, rec["qty"], size if size is not None else rec["qty"]), ins["lotSz"])
             if sz >= min_sz:
                 f = self.market(inst_id, "sell", sz, tag="x")
                 if f["sz"] > 0:

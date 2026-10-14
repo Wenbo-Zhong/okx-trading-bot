@@ -131,3 +131,7 @@ SPOT_DEPTH_MAX_SLIP = 0.01       # spot market buys: cap notional to ask depth w
 SWAP_MAKER_FEE = 0.0002
 SWAP_TAKER_FEE = 0.0005
 SPOT_MAKER_FEE = 0.001
+
+# Explicit external planner limits.
+PLAN_MAX_SNAPSHOT_AGE_MIN = 45
+PLAN_MAX_ACTIONS = 6

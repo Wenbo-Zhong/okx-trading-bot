@@ -78,6 +78,21 @@ K 线仅含已收盘数据，指标使用额外历史预热；历史不足的指
 SHA-256 覆盖去除 `snapshot_id`、`sha256` 后的 UTF-8 JSON，使用排序键、
 `ensure_ascii=False`、紧凑分隔符 `(',', ':')`，不允许 NaN。
 
+## 规划模式（2026-10-14 起）
+
+交易决策由外部 LLM 规划器（定时任务里的 Grok Bot）根据新闻和 K 线做出；本项目只负责整理信息、校验并安全执行明确的计划、以及自动安全维护。关键词新闻情绪分不再参与决策；C7 只作为快照里的参考信号和回测基准，所有 `AUTO_*` 开关默认关闭。
+
+```bash
+python3 -m scripts.maintain                 # 自动维护：对账、订单恢复、熔断、止损覆盖（run_once 等同于它）
+python3 -m scripts.snapshot --brief         # 信息快照 JSON（--view 紧凑文本，--inst 指定品种）
+python3 -m scripts.execute_plan plan.json   # 校验计划，默认 dry-run 不下单
+python3 -m scripts.execute_plan plan.json --execute   # 执行（模拟盘）
+python3 -m scripts.execute_plan --no-trade --snapshot-id ID --reason "信息不足"
+python3 -m scripts.decisions                # 查看决策记录及结果
+```
+
+计划过期、快照超过 45 分钟或信息不足时不交易。快照字段、计划格式和校验规则见 [docs/PLANNER.md](docs/PLANNER.md)。
+
 ## 测试
 
 ```bash
@@ -85,6 +100,9 @@ SHA-256 覆盖去除 `snapshot_id`、`sha256` 后的 UTF-8 JSON，使用排序�
 ```
 
 ## English summary
+
+Planner mode: an external LLM decides trades; this repo provides `scripts.snapshot` (info), `scripts.execute_plan` (validate, dry-run default, `--execute`), `scripts.maintain` (automatic safety only) and `scripts.decisions` (journal). C7 is reference/backtest only. See docs/PLANNER.md.
+
 
 Trend-following bot for OKX v5 (strategy "C7"), demo mode by default. Guardrails: ≤5x leverage, ≤3 swaps, mandatory stop-loss, 0.5% risk/trade, −10% daily lock, −40% drawdown halt, spot-preferred longs, balance/exchange-limit-aware sizing, thin-book filter and slippage buffer. Backtests are modest and the live demo has been **losing money**. Configure credentials via `.env` (see `.env.example`), run `python3 -m scripts.run_once`, run `tests/test_*.py` directly.
 

@@ -2,6 +2,7 @@
 import copy
 import datetime as dt
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -27,6 +28,75 @@ def journal_decision(record):
         f.write(line + '\n')
         f.flush()
         os.fsync(f.fileno())
+
+
+def canonical_sha256(obj):
+    data = json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(',', ':'), allow_nan=False, default=str)
+    return hashlib.sha256(data.encode('utf-8')).hexdigest()
+
+
+def snapshot_sha256(snapshot_id=None, snapshot_path=None):
+    """sha256 recorded inside the snapshot file (falls back to hashing the file)."""
+    try:
+        path = Path(snapshot_path) if snapshot_path else Path(config.DATA_DIR, 'snapshots', str(snapshot_id) + '.json')
+        if snapshot_path is None and Path(str(snapshot_id)).name != str(snapshot_id):
+            return None
+        raw = path.read_bytes()
+        try:
+            return json.loads(raw).get('sha256') or hashlib.sha256(raw).hexdigest()
+        except ValueError:
+            return hashlib.sha256(raw).hexdigest()
+    except (OSError, TypeError):
+        return None
+
+
+def outcome_summary(actions):
+    counts = {}
+    for a in actions:
+        counts[a.get('status')] = counts.get(a.get('status'), 0) + 1
+    orders = []
+    for a in actions:
+        r = a.get('result') or {}
+        for k in ('ordId',):
+            if r.get(k):
+                orders.append(r[k])
+    traded = any(a.get('status') == 'executed' and a.get('action') != 'hold' for a in actions)
+    return {'counts': counts, 'order_ids': orders, 'traded': traded}
+
+
+def decision_record(result, plan=None, snapshot_path=None, now=None):
+    """Full review record: inputs (snapshot id + hash, plan hash), rationale, outcome."""
+    plan = plan if isinstance(plan, dict) else {}
+    rec = dict(result)
+    rec['ts'] = iso_now(now)
+    rec['kind'] = rec.get('kind') or 'plan'
+    rec['plan_sha256'] = canonical_sha256(plan) if plan else None
+    rec['snapshot_sha256'] = snapshot_sha256(rec.get('snapshot_id'), snapshot_path)
+    rec['rationale'] = plan.get('rationale') if isinstance(plan.get('rationale'), str) else rec.get('rationale')
+    unc = plan.get('uncertainties')
+    rec['uncertainties'] = unc if isinstance(unc, list) else rec.get('uncertainties', [])
+    rec['valid_until'] = plan.get('valid_until')
+    rec['outcome'] = outcome_summary(rec.get('actions') or [])
+    rec['errors'] = list(rec.get('plan_errors') or []) + [
+        f"action {a.get('index')}: {'; '.join(a.get('reasons') or [])}"
+        for a in rec.get('actions') or [] if a.get('status') in ('failed', 'rejected')]
+    return rec
+
+
+def iso_now(now=None):
+    return (now or dt.datetime.now(UTC)).astimezone(UTC).isoformat().replace('+00:00', 'Z')
+
+
+def record_no_trade(snapshot_id, reason, uncertainties=None, now=None):
+    """Journal an explicit planner decision not to trade (insufficient info, nothing worth doing...)."""
+    rec = decision_record({'kind': 'no_trade', 'plan_id': None, 'snapshot_id': snapshot_id, 'mode': 'no_trade',
+                           'valid': True, 'plan_errors': [], 'actions': [],
+                           'rationale': required_text(reason, 'reason'),
+                           'uncertainties': list(uncertainties or [])}, None, None, now)
+    if rec['snapshot_sha256'] is None:
+        rec['errors'].append('snapshot not found: ' + str(snapshot_id))
+    journal_decision(rec)
+    return rec
 
 
 @contextmanager
@@ -626,11 +696,13 @@ def run_plan(plan, execute=False, snapshot_path=None, client=None, now=None, loc
                     row['status'] = 'skipped' if a['action'] == 'hold' or (a['action'] == 'open' and not row['result'].get('filled')) else 'executed'
                 except Exception as e:
                     row.update(status='failed', reasons=notes + [str(e)])
+            result = decision_record(result, plan, snapshot_path, now)
             journal_decision(result)
     except Exception as e:
         result['valid'] = False
         result['plan_errors'].append(str(e))
         try:
+            result = decision_record(result, plan, snapshot_path, now)
             journal_decision(result)
         except OSError:
             pass  # The original journal/storage failure is already reported.

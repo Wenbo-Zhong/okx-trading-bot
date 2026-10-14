@@ -269,6 +269,15 @@ def t_hash_matches_canonical_content():
     assert data["snapshot_id"] == "snap-20261014T120000Z-" + digest[:10]
 
 
+
+def t_brief_drops_bars_keeps_ids():
+    import scripts.snapshot as S
+    snap = {"snapshot_id": "x", "sha256": "y", "instruments": {"A": {"candles": {"1H": {"bars": [[1, 1, 1, 1, 1, 1], [2, 2, 2, 2, 2, 2]], "indicators": {"ema20": 1}}, "4H": None}}}}
+    b = S.brief(snap)
+    c = b["instruments"]["A"]["candles"]["1H"]
+    assert "bars" not in c and c["last_bar"][0] == 2 and c["n_bars"] == 2 and c["indicators"]["ema20"] == 1
+    assert b["snapshot_id"] == "x" and b["sha256"] == "y" and "bars" in snap["instruments"]["A"]["candles"]["1H"]
+
 if __name__ == "__main__":
     # Fail immediately if any test leaks to the network.
     with patch("requests.sessions.Session.request", side_effect=AssertionError("network forbidden")):

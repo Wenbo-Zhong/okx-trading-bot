@@ -193,24 +193,57 @@ class SpotManager:
         rec = self.st["longs"].get(inst_id)
         if not rec or not self.b.live:
             return
+        from okxbot.bot import clamp_sl_trigger
         base = inst_id.split("-")[0]
+        ins = self.inst[inst_id]
+        min_sz = float(ins["minSz"])
+        needs_stop = False
+        ref_px = self.last.get(inst_id, 0)
         try:
             for a in self.x.pending_algos(inst_id, "SPOT"):
                 self.x.cancel_algos([{"algoId": a["algoId"], "instId": inst_id}])
+                needs_stop = True
+            needs_stop = True  # also protect positions that had no algo
             avail = self.balances().get(base, {}).get("avail", 0.0)
-            sz = _rd(min(avail, rec["qty"]), self.inst[inst_id]["lotSz"])
-            if sz >= float(self.inst[inst_id]["minSz"]):
+            sz = _rd(min(avail, rec["qty"]), ins["lotSz"])
+            if sz >= min_sz:
                 f = self.market(inst_id, "sell", sz, tag="x")
-                pnl = (f["px"] - rec["entry"]) * f["sz"] + (f["fee"] if f["feeCcy"] == "USDT" else 0)
-                self.log(event="closed", instId=inst_id, side="long", contracts=f["sz"], price=f["px"],
-                         pnl=round(pnl, 4), reason=f"spot long exit: {reason}", ordId=f["ordId"])
-                self.b.ev("spot long closed", instId=inst_id, reason=reason, pnl=round(pnl, 2))
-                J.record("close", instId=inst_id, trade_id=rec.get("trade_id") or rec.get("ordId"), source="bot exit",
-                         exit=f["px"], realized_pnl=round(pnl, 6), fee=f["fee"], fee_ccy=f["feeCcy"], reason=reason,
-                         last_stop=rec.get("stop"), tp=rec.get("tp"), init_stop=rec.get("init_stop"))
-            self.st["longs"].pop(inst_id, None)
+                if f["sz"] > 0:
+                    rec["qty"] = max(0.0, rec["qty"] - f["sz"])
+                    if f["px"] > 0:
+                        ref_px = min(ref_px, f["px"]) if ref_px > 0 else f["px"]
+                    pnl = (f["px"] - rec["entry"]) * f["sz"] + (f["fee"] if f["feeCcy"] == "USDT" else 0)
+                    self.log(event="closed", instId=inst_id, side="long", contracts=f["sz"], price=f["px"],
+                             pnl=round(pnl, 4), reason=f"spot long exit: {reason}", ordId=f["ordId"])
+                    self.b.ev("spot long closed" if rec["qty"] < min_sz else "spot long partially closed",
+                              instId=inst_id, reason=reason, qty=f["sz"], remaining=rec["qty"], pnl=round(pnl, 2))
+                    J.record("close", instId=inst_id, trade_id=rec.get("trade_id") or rec.get("ordId"), source="bot exit",
+                             size=f["sz"], remaining=rec["qty"],
+                             exit=f["px"], realized_pnl=round(pnl, 6), fee=f["fee"], fee_ccy=f["feeCcy"], reason=reason,
+                             last_stop=rec.get("stop"), tp=rec.get("tp"), init_stop=rec.get("init_stop"))
         except OKXError as e:
             self.b.err(f"spot long exit {inst_id}: {e}")
+        if not needs_stop:
+            return
+        if rec["qty"] < min_sz:
+            if rec["qty"] > 0:
+                self.b.ev("spot long dust dropped", instId=inst_id, qty=rec["qty"], minSz=min_sz)
+            self.st["longs"].pop(inst_id, None)
+            return
+        try:
+            if ref_px <= 0:
+                raise OKXError("no market price for safe stop restoration")
+            stop, _, _ = clamp_sl_trigger(1, rec["stop"], ref_px)
+            tick = float(ins["tickSz"])
+            # Nearest-tick formatting can round a clamped trigger back to market.
+            stop_px = _px(min(stop, (math.ceil(ref_px / tick) - 1) * tick), tick)
+            if not 0 < float(stop_px) < ref_px:
+                raise OKXError("no valid non-marketable stop tick")
+            self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "conditional",
+                               "sz": str(_rd(rec["qty"], ins["lotSz"])), "slTriggerPx": stop_px, "slOrdPx": "-1"})
+            rec["stop"] = float(stop_px)
+        except OKXError as e:
+            self.b.err(f"spot long restore stop {inst_id}: {e}")
 
     def manage_longs(self, must_flatten, why):
         if not self.st["longs"]:
@@ -355,7 +388,8 @@ class SpotManager:
                                    "tpTriggerPx": _px(tp, tick), "tpOrdPx": "-1"})
             except OKXError as e:
                 self.b.err(f"spot long {inst_id}: stop placement failed ({e}) -> selling")
-                self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"]}
+                self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"], "stop": stop, "init_stop": stop,
+                                             "tp": tp, "entry_ts": bar_ts + 3600_000, "ordId": f["ordId"]}
                 self.exit_long(inst_id, "could not place stop"); return False
             self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"], "init_stop": stop, "stop": stop, "tp": tp,
                                          "entry_ts": bar_ts + 3600_000, "ordId": f["ordId"],

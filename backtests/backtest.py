@@ -94,7 +94,7 @@ def run(insts, n_bars, start_eq=500.0, verbose=False, t_from=None, t_to=None, fu
                        "funding_pnl": p.get("fund", 0.0)})
 
     for ts in all_ts:
-        if ts < warm or (t_from and ts < t_from) or (t_to and ts >= t_to):
+        if ts < warm or (t_from is not None and ts < t_from) or (t_to is not None and ts >= t_to):
             continue
         # ---- funding settled at this bar's open time, paid/received by positions opened earlier
         if funding_mode:
@@ -196,7 +196,16 @@ def run(insts, n_bars, start_eq=500.0, verbose=False, t_from=None, t_to=None, fu
             pending[inst] = sig
 
     for i in list(pos):
-        close(i, feats[i]["c"].iloc[-1], all_ts[-1], "end")
+        f = feats[i]
+        if t_to is not None:
+            f = f[(f.index < t_to) & (f.index >= warm)]
+            if t_from is not None:
+                f = f[f.index >= t_from]
+            close(i, f["c"].iloc[-1], f.index[-1], "end")
+        else:
+            close(i, f["c"].iloc[-1], all_ts[-1], "end")
+    if curve:
+        curve.append((curve[-1][0], cash))
     eqs = np.array([e for _, e in curve])
     final = cash
     mdd = float(np.max(1 - eqs / np.maximum.accumulate(eqs))) if len(eqs) else 0

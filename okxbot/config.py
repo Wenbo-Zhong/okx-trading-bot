@@ -81,6 +81,8 @@ SL_TRIGGER_BUFFER_PCT = 0.001  # SL must stay this far beyond live last AND mark
 PRIVATE_WHITELIST = {
     ("GET", "/api/v5/trade/order-algo"),
     ("GET", "/api/v5/account/balance"),
+    ("GET", "/api/v5/account/trade-fee"),
+    ("GET", "/api/v5/trade/orders-pending"),
     ("GET", "/api/v5/account/config"),
     ("GET", "/api/v5/account/positions"),
     ("GET", "/api/v5/account/positions-history"),
@@ -124,3 +126,8 @@ SLIP_FLOOR_OTHER = 0.01          # min assumed stop slippage, everything else (b
 SLIP_MAJORS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "BNB", "ADA", "LTC", "BCH", "LINK", "AVAX", "XAU"]         # refuse a swap order if notional or risk > 1.2x the risk-based plan
 SPOT_DEPTH_FALLBACK_FRAC = 0.5  # routed ~1x long: if depth cap < 50% of planned size, open the 1x swap instead
 SPOT_DEPTH_MAX_SLIP = 0.01       # spot market buys: cap notional to ask depth within 1% of mid (demo book) x 0.8         # use at most 95% of affordable / exchange max size
+
+# Snapshot fee fallbacks (positive cost fractions; account rates take precedence).
+SWAP_MAKER_FEE = 0.0002
+SWAP_TAKER_FEE = 0.0005
+SPOT_MAKER_FEE = 0.001

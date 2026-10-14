@@ -61,7 +61,10 @@ def fetch_items(max_age_h=24):
                 age_h = (now - ts).total_seconds() / 3600
                 if age_h <= max_age_h:
                     items.append({"title": title, "text": f"{title}. {desc}", "age_h": round(age_h, 1),
-                                  "src": url.split("/")[2]})
+                                  "src": url.split("/")[2],
+                                  "url": (it.findtext("link") or "").strip(),
+                                  "published_at": ts.astimezone(dt.timezone.utc).isoformat(),
+                                  "summary": desc})
         except Exception as e:
             errors.append(f"{url}: {type(e).__name__}: {e}"[:200])
     return items, errors

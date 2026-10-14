@@ -54,10 +54,34 @@ python3 -m scripts.report       # 查看权益 / 持仓 / 盈亏
 部分平仓按实际成交扣减数量，保留并保护剩余持仓；日志汇总各次退出的盈亏、费用和加权成交价。
 旧持仓缺少止损订单 ID 时，余额差异会保留为待对账数量，不用当前价格估算为整笔已平仓。
 
+## Planner snapshot（只读信息快照）
+
+```bash
+python3 -m scripts.snapshot
+python3 -m scripts.snapshot --inst BTC-USDT-SWAP ETH-USDT --no-news --view
+python3 -m scripts.snapshot --out /tmp/okx-snapshot.json
+```
+
+快照供外部 planner 使用，C7 仅作为参考，不触发交易或修改机器人状态，也不计算新闻情绪分数。
+默认输出 JSON；`--view` 输出紧凑文本及 snapshot ID。每次同时原子写入
+`<DATA_DIR>/snapshots/<snapshot_id>.json` 和 `latest.json`，`--out` 另存一份 JSON。
+缺少 API keys 时 `account=null`；部分数据获取失败仍返回退出码 0，详情见 `errors` 和
+`completeness`。`--no-news` 会将 `completeness.news` 设为 false。
+
+K 线仅含已收盘数据，指标使用额外历史预热；历史不足的指标为 null。收益率、资金费率和手续费
+使用小数比例；手续费正值表示费用，负值表示返佣，`fees.source` 标记账户费率或配置默认值。
+行情和盘口来自生产公共接口，账户数据来自模拟盘。`liquidity_ok` 使用现有流动性过滤器，
+以 `START_CAPITAL * MAX_MARGIN_PCT` 名义金额、`MIN_STOP_PCT` 止损距离同时检查两个方向，
+仅供参考；具体计划仍需检查模拟盘执行盘口。清算簇是已有 liqmap 模型的估算。
+宏观事件来自 `DATA_DIR/events.json`，缺少日历会显式标记不完整。
+
+SHA-256 覆盖去除 `snapshot_id`、`sha256` 后的 UTF-8 JSON，使用排序键、
+`ensure_ascii=False`、紧凑分隔符 `(',', ':')`，不允许 NaN。
+
 ## 测试
 
 ```bash
-for t in tests/test_*.py; do python3 "$t"; done
+.venv/bin/python tests/run_all.py
 ```
 
 ## English summary

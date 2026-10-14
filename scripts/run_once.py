@@ -1,7 +1,7 @@
 """Run one decision cycle. Without OKX_API_KEY/SECRET/PASSPHRASE env vars it runs as a
 dry run (public data + decisions logged, no orders). With keys it trades on OKX DEMO only.
 Ends with an `ALERTS:` section (empty if none) for the hourly routine to relay."""
-import os, sys
+import fcntl, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sys, traceback
 from okxbot import config
@@ -10,6 +10,16 @@ from okxbot import alerts
 
 if __name__ == "__main__":
     assert config.DEMO, "Live (non-demo) trading is disabled in this build."
+    os.makedirs(config.DATA_DIR, exist_ok=True)
+    # Keep this descriptor open until process exit, including alerts/journal refresh.
+    run_lock = open(os.path.join(config.DATA_DIR, "run_once.lock"), "a")
+    try:
+        fcntl.flock(run_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        msg = "Another run_once instance is running; skipping trading."
+        print(msg)
+        alerts.print_section([{"type": "error", "msg": msg}])
+        sys.exit(3)
     code = 0
     b = None
     try:

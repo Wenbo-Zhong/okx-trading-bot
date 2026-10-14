@@ -6,7 +6,9 @@ from okxbot import config
 
 
 class OKXError(Exception):
-    pass
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 class OKX:
@@ -36,7 +38,11 @@ class OKX:
         req_path = path + qs
         data = json.dumps(body, separators=(",", ":")) if body is not None else ""
         last = None
-        for attempt in range(retries):
+        recover_order = (private and method == "POST" and path == "/api/v5/trade/order"
+                         and body and body.get("clOrdId") and body.get("instId"))
+        order_retried = False
+        attempt = 0
+        while attempt < retries:
             headers = {"Content-Type": "application/json"}
             # Demo header on private calls (and on public calls only when explicitly asked, e.g. to
             # list demo-tradable instruments). Market data for signals comes from production.
@@ -51,15 +57,41 @@ class OKX:
             try:
                 r = self.s.request(method, config.BASE_URL + req_path, data=data or None,
                                    headers=headers, timeout=15)
+                if r.status_code == 429:
+                    time.sleep(2 * (attempt + 1))
+                    last = "HTTP 429"
+                    attempt += 1
+                    continue
                 j = r.json()
             except Exception as e:  # network / decode
+                if private and method == "POST":
+                    if not recover_order:
+                        raise OKXError(f"{method} {path} outcome unknown: {e}") from e
+                    # Allow the exchange a moment to make an accepted order visible.
+                    time.sleep(1.5)
+                    try:
+                        found = self._req("GET", path, {"instId": body["instId"],
+                                                       "clOrdId": body["clOrdId"]}, private=True)
+                    except OKXError as lookup_error:
+                        if lookup_error.code != "51603":  # order does not exist
+                            raise OKXError(f"Order outcome unknown; lookup failed: {lookup_error}") from e
+                        found = []
+                    if found:
+                        return [{"ordId": found[0]["ordId"], "clOrdId": body["clOrdId"],
+                                 "sCode": "0", "sMsg": ""}]
+                    if order_retried:
+                        raise OKXError(f"{method} {path} outcome unknown after one retry: {e}") from e
+                    order_retried = True
                 last = e
-                time.sleep(1.5 * (attempt + 1))
+                if not recover_order:
+                    time.sleep(1.5 * (attempt + 1))
+                    attempt += 1
                 continue
-            if r.status_code == 429 or j.get("code") == "50011":
-                time.sleep(2 * (attempt + 1)); last = j; continue
+            if j.get("code") == "50011":
+                time.sleep(2 * (attempt + 1)); last = j; attempt += 1; continue
             if j.get("code") != "0":
-                raise OKXError(f"{method} {path} -> code={j.get('code')} msg={j.get('msg')} data={j.get('data')}")
+                raise OKXError(f"{method} {path} -> code={j.get('code')} msg={j.get('msg')} data={j.get('data')}",
+                               code=j.get("code"))
             return j["data"]
         raise OKXError(f"{method} {path} failed after retries: {last}")
 

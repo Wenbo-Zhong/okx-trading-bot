@@ -37,6 +37,10 @@ class SpotManager:
         self.inst, self.last, self.vol = {}, {}, {}
 
     # ---------- helpers ----------
+    def save_state(self):
+        from okxbot.bot import save_state
+        save_state(self.b.st)
+
     def load_market(self):
         prod = {i["instId"]: i for i in self.x.instruments("SPOT")}
         demo_inst = {i["instId"]: i for i in self.x.instruments("SPOT", demo=True) if i.get("state") == "live"}
@@ -79,6 +83,7 @@ class SpotManager:
         if quote:
             body["tgtCcy"] = "quote_ccy"
         res = self.x.place_order(body)[0]
+        self.save_state()
         o = self.fill(inst_id, res["ordId"])
         fsz, fpx = float(o.get("accFillSz") or 0), float(o.get("avgPx") or 0)
         fee, fee_ccy = float(o.get("fee") or 0), o.get("feeCcy")
@@ -151,6 +156,7 @@ class SpotManager:
                 proceeds = f["sz"] * f["px"] + (f["fee"] if f["feeCcy"] == "USDT" else 0)
                 sl.update({"mode": "OUT", "usdt": round(proceeds, 4), "last_switch_ts": now_ms,
                            "last_px": f["px"], "last_qty": f["sz"]})
+                self.save_state()
                 self.log(event="spot_sell", instId=inst_id, side="sell", contracts=f["sz"], price=f["px"],
                          notional=round(f["sz"] * f["px"], 2), reason=f"sleeve OUT: 4h={t4} 1h={t1}", ordId=f["ordId"])
                 self.b.ev("spot sleeve SOLD to USDT", coin=coin, qty=f["sz"], px=f["px"], usdt=round(proceeds, 2))
@@ -173,6 +179,7 @@ class SpotManager:
                 if f["sz"] <= 0:
                     self.b.err(f"spot sleeve buy {coin} not filled ({f['state']})"); continue
                 sl.update({"mode": "IN", "usdt": 0.0, "last_switch_ts": now_ms, "last_px": f["px"], "last_qty": f["sz"]})
+                self.save_state()
                 self.log(event="spot_buy", instId=inst_id, side="buy", contracts=f["sz"], price=f["px"],
                          notional=amt, reason=f"sleeve IN: 4h={t4} 1h={t1}", ordId=f["ordId"])
                 self.b.ev("spot sleeve BOUGHT back", coin=coin, qty=f["sz"], px=f["px"], usdt=amt)
@@ -210,6 +217,7 @@ class SpotManager:
                 f = self.market(inst_id, "sell", sz, tag="x")
                 if f["sz"] > 0:
                     rec["qty"] = max(0.0, rec["qty"] - f["sz"])
+                    self.save_state()
                     if f["px"] > 0:
                         ref_px = min(ref_px, f["px"]) if ref_px > 0 else f["px"]
                     pnl = (f["px"] - rec["entry"]) * f["sz"] + (f["fee"] if f["feeCcy"] == "USDT" else 0)
@@ -229,6 +237,7 @@ class SpotManager:
             if rec["qty"] > 0:
                 self.b.ev("spot long dust dropped", instId=inst_id, qty=rec["qty"], minSz=min_sz)
             self.st["longs"].pop(inst_id, None)
+            self.save_state()
             return
         try:
             if ref_px <= 0:
@@ -242,6 +251,7 @@ class SpotManager:
             self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "conditional",
                                "sz": str(_rd(rec["qty"], ins["lotSz"])), "slTriggerPx": stop_px, "slOrdPx": "-1"})
             rec["stop"] = float(stop_px)
+            self.save_state()
         except OKXError as e:
             self.b.err(f"spot long restore stop {inst_id}: {e}")
 
@@ -262,6 +272,7 @@ class SpotManager:
                          realized_pnl=round((px - rec["entry"]) * rec["qty"], 6), last_stop=rec.get("stop"),
                          tp=rec.get("tp"), init_stop=rec.get("init_stop"))
                 self.st["longs"].pop(inst_id, None)
+                self.save_state()
                 self.b.ev("spot long closed on exchange (SL/TP)", instId=inst_id); continue
             try:
                 f = build_features(self.candles(inst_id))
@@ -278,6 +289,7 @@ class SpotManager:
                     self.b.err(f"spot long {inst_id} had no stop -> placing one")
                     self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "conditional",
                                        "sz": str(rec["qty"]), "slTriggerPx": _px(new, tick), "slOrdPx": "-1"})
+                    self.save_state()
                 elif algo and new > float(algo["slTriggerPx"]) * 1.0005:
                     self.x.amend_algo({"instId": inst_id, "algoId": algo["algoId"],
                                        "newSlTriggerPx": _px(new, tick), "newSlOrdPx": "-1"})
@@ -382,18 +394,18 @@ class SpotManager:
             qty = f["sz"] + (f["fee"] if f["feeCcy"] == inst_id.split("-")[0] else 0)  # fee charged in base
             qty = _rd(qty, ins["lotSz"])
             stop, tp = initial_stop_tp(1, f["px"], atr_v) if initial_stop_tp(1, f["px"], atr_v)[0] else (stop, tp)
+            self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"], "init_stop": stop, "stop": stop, "tp": tp,
+                                         "entry_ts": bar_ts + 3600_000, "ordId": f["ordId"],
+                                         "routed_from": routed_from}
+            self.save_state()
             try:
                 self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "oco", "sz": str(qty),
                                    "slTriggerPx": _px(stop, tick), "slOrdPx": "-1",
                                    "tpTriggerPx": _px(tp, tick), "tpOrdPx": "-1"})
+                self.save_state()
             except OKXError as e:
                 self.b.err(f"spot long {inst_id}: stop placement failed ({e}) -> selling")
-                self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"], "stop": stop, "init_stop": stop,
-                                             "tp": tp, "entry_ts": bar_ts + 3600_000, "ordId": f["ordId"]}
                 self.exit_long(inst_id, "could not place stop"); return False
-            self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"], "init_stop": stop, "stop": stop, "tp": tp,
-                                         "entry_ts": bar_ts + 3600_000, "ordId": f["ordId"],
-                                         "routed_from": routed_from}
             why = "spot C7 breakout+trend" + (f" (routed from ~1x {routed_from} long)" if routed_from else "")
             self.log(event="open", instId=inst_id, side="long", contracts=qty, price=f["px"], stop=_px(stop, tick),
                      tp=_px(tp, tick), leverage=1, notional=round(qty * f["px"], 2),

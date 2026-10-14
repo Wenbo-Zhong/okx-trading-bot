@@ -37,7 +37,8 @@ def load_state():
 
 def save_state(st):
     tmp = STATE_F + ".tmp"
-    json.dump(st, open(tmp, "w"), indent=1)
+    with open(tmp, "w") as f:
+        json.dump(st, f, indent=1)
     os.replace(tmp, STATE_F)
 
 
@@ -268,8 +269,10 @@ class Bot:
                 self.x.place_order({"instId": inst_id, "tdMode": "cash", "side": "sell",
                                     "ordType": "market", "sz": str(sz),
                                     "clOrdId": "botc" + uuid.uuid4().hex[:19]})
+                save_state(self.st)
             else:
                 self.x.close_position(inst_id, pos_side)
+                save_state(self.st)
                 self.cancel_algos(inst_id)
             self.ev("closed position", instId=inst_id, reason=reason)
             J.record("close_request", instId=inst_id, reason=reason,
@@ -308,7 +311,9 @@ class Bot:
             if pos_side:
                 body["posSide"] = pos_side
                 body.pop("reduceOnly")
-        return self.x.place_algo(body)
+        result = self.x.place_algo(body)
+        save_state(self.st)
+        return result
 
     def liq_nudge_open(self, inst_id, side, rec, stop, price, atr, last_px=None, mark_px=None):
         """Liquidation-cluster nudge for an OPEN position (reference only). Returns dict or None.
@@ -879,6 +884,8 @@ class Bot:
                     st["last_signal_ts"][inst_id] = bar_ts
                     return
             res = self.x.place_order(order)[0]
+            st["last_signal_ts"][inst_id] = bar_ts
+            save_state(self.st)
             ord_id = res.get("ordId")
             o = {}
             for _ in range(16):   # wait for the market order to fully fill (was reading partial fills)
@@ -902,6 +909,10 @@ class Bot:
             plan.update(contracts=filled, notional=round(act_notional, 2), margin=round(act_notional / lev, 2),
                         risk_usdt=round(abs(fill_px - stop) * filled * ctv, 2), requested_contracts=contracts)
             margin = act_notional / lev
+            st["positions"][inst_id] = {"side": side, "entry": fill_px, "init_stop": stop, "stop": stop, "tp": tp,
+                                        "entry_ts": bar_ts + 3600_000, "contracts": filled, "lev": lev, "ordId": ord_id,
+                                        "intent": intent}
+            save_state(self.st)
             algo = None
             for _ in range(6):    # attached TP/SL can take a moment to appear
                 time.sleep(0.5)
@@ -922,9 +933,6 @@ class Bot:
                     self.err(f"protective SL failed ({e}) -> closing {inst_id}")
                     self.close(inst_id, pos_side, "could not place stop-loss"); return
             self.usdt_avail = max(0.0, self.usdt_avail - margin)
-            st["positions"][inst_id] = {"side": side, "entry": fill_px, "init_stop": stop, "stop": stop, "tp": tp,
-                                        "entry_ts": bar_ts + 3600_000, "contracts": filled, "lev": lev, "ordId": ord_id,
-                                        "intent": intent}
             log_trade({"time": now_local().isoformat(timespec="seconds"), "event": "open", "instId": inst_id,
                        "side": plan["side"], "contracts": filled, "price": fill_px, "stop": plan["stop"],
                        "tp": plan["tp"], "leverage": lev, "notional": plan["notional"], "ordId": ord_id,

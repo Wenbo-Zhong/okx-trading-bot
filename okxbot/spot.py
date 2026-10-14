@@ -491,14 +491,19 @@ class SpotManager:
                         self.b.err(f"spot protection {inst_id}: {e}; exiting")
                         self.exit_long(inst_id, "could not confirm stop coverage")
                         continue
+                if not (config.AUTO_TREND_EXITS or config.AUTO_TRAIL):
+                    # planner mode: stop coverage was verified above; never exit or move stops on our own
+                    self.b.ev("spot long holding", instId=inst_id, entry=rec["entry"], stop=rec.get("stop"))
+                    continue
                 f = build_features(self.candles(inst_id))
                 last = f.iloc[-1]
-                if should_exit_on_trend(1, last):
+                if config.AUTO_TREND_EXITS and should_exit_on_trend(1, last):
                     self.exit_long(inst_id, "trend flipped down"); continue
                 since = f[f["ts"] >= rec["entry_ts"] - 3600_000]
                 hi = max(rec["entry"], since["h"].max() if len(since) else rec["entry"])
                 lo = min(rec["entry"], since["l"].min() if len(since) else rec["entry"])
-                new = update_stop(1, rec["entry"], rec["init_stop"], rec["stop"], hi, lo, last["atr"])
+                new = (update_stop(1, rec["entry"], rec["init_stop"], rec["stop"], hi, lo, last["atr"])
+                       if config.AUTO_TRAIL else rec["stop"])
                 algo = self.sl_algo(inst_id) if self.b.live else None
                 tick = self.inst[inst_id]["tickSz"]
                 if self.b.live and algo is None:

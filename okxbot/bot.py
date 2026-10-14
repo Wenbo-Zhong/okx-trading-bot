@@ -525,26 +525,39 @@ class Bot:
         for p in positions:
             inst_id = p["instId"]
             try:
-                f = self.features(inst_id)
-                last = f.iloc[-1]
+                try:
+                    f = self.features(inst_id)
+                    last = f.iloc[-1]
+                except Exception as e:
+                    if config.AUTO_TRAIL or config.AUTO_TREND_EXITS:
+                        raise
+                    # planner mode: candles are only a fallback reference; stop coverage must still run
+                    self.err(f"candles {inst_id}: {e} (stop coverage continues)")
+                    f, last = None, {"atr": float("nan"), "c": float(p.get("markPx") or p.get("avgPx") or 0)}
                 pos_amt = float(p["pos"])
                 side = 1 if (p.get("posSide") == "long" or (p.get("posSide") == "net" and pos_amt > 0)) else -1
                 rec = st["positions"].get(inst_id)
                 if rec is None:  # position not opened by bot: adopt with a strategy stop
                     entry = float(p["avgPx"])
-                    stop, tp = initial_stop_tp(side, entry, last["atr"])
+                    stop, tp = (initial_stop_tp(side, entry, last["atr"]) if f is not None else (None, None))
                     stop = stop or (entry * (1 - config.MAX_STOP_PCT * side))
+                    ex = [a for a in self.sl_algos(inst_id) if a.get("slTriggerPx")]
+                    if ex:   # keep the stop that is already on the exchange
+                        stop = float(ex[0]["slTriggerPx"])
                     rec = {"side": side, "entry": entry, "init_stop": stop, "stop": stop, "tp": tp,
                            "entry_ts": int(p.get("cTime") or 0), "adopted": True}
                     st["positions"][inst_id] = rec
                     self.ev("adopted unknown position", instId=inst_id)
-                if should_exit_on_trend(side, last):
+                if config.AUTO_TREND_EXITS and should_exit_on_trend(side, last):
                     self.close(inst_id, p.get("posSide"), "4h trend flipped against position")
                     continue
-                since = f[f["ts"] >= rec["entry_ts"] - 3600_000]
-                hi = max(rec["entry"], since["h"].max() if len(since) else rec["entry"])
-                lo = min(rec["entry"], since["l"].min() if len(since) else rec["entry"])
-                new_stop = update_stop(side, rec["entry"], rec["init_stop"], rec["stop"], hi, lo, last["atr"])
+                if config.AUTO_TRAIL:
+                    since = f[f["ts"] >= rec["entry_ts"] - 3600_000]
+                    hi = max(rec["entry"], since["h"].max() if len(since) else rec["entry"])
+                    lo = min(rec["entry"], since["l"].min() if len(since) else rec["entry"])
+                    new_stop = update_stop(side, rec["entry"], rec["init_stop"], rec["stop"], hi, lo, last["atr"])
+                else:
+                    new_stop = rec["stop"]   # planner mode: never move a stop automatically
                 exit_side = "sell" if side == 1 else "buy"
                 expected_ps = p.get("posSide") or "net"
                 algos = [a for a in self.sl_algos(inst_id)
@@ -574,9 +587,11 @@ class Bot:
                 # trail level computed above; never loosen vs the live exchange stop except via the liq nudge
                 if algo is not None:
                     ex_stop = float(algo["slTriggerPx"])
+                    if not config.AUTO_TRAIL:
+                        new_stop = ex_stop   # planner mode: the exchange stop is authoritative
                     new_stop = max(new_stop, ex_stop) if side == 1 else min(new_stop, ex_stop)
                 nudged = None
-                if getattr(config, "LIQMAP_NUDGE_OPEN", False) and inst_id.endswith("-SWAP"):
+                if config.AUTO_LIQ_NUDGE and getattr(config, "LIQMAP_NUDGE_OPEN", False) and inst_id.endswith("-SWAP"):
                     nudged = self.liq_nudge_open(inst_id, side, rec, new_stop, live_ref, float(last["atr"]),
                                                  last_px=live_last, mark_px=live_mark)
                     if nudged is not None:
@@ -637,6 +652,9 @@ class Bot:
                 self.ev("holding", instId=inst_id, side=side, upl=p.get("upl"), stop=round(new_stop, 6))
             except Exception as e:
                 self.err(f"manage {inst_id}: {e}")
+
+        if not config.AUTO_ENTRIES:
+            return self.maintain_tail(equity, positions, must_flatten, why)
 
         # Universe availability gates every kind of new entry, never position management.
         universe, universe_failed = [], False
@@ -719,7 +737,7 @@ class Bot:
             except Exception as e:
                 can_open = False
                 self.err(f"spot market: {e}")
-            if spot_ready:
+            if spot_ready and config.AUTO_SLEEVES:
                 try:
                     spot.run_alloc(can_rebuy=can_open and not self.block_longs)
                 except Exception as e:
@@ -1061,6 +1079,26 @@ class Bot:
                 self.ev("FUNDING HARVEST EXIT: funding persistently >= entry-block level", **info)
                 self.log.setdefault("funding_harvest_flags", []).append({**info, "action": "close"})
                 self.close(inst_id, self.pos_side(1), "funding_flip")
+
+    def maintain_tail(self, equity, positions, must_flatten, why):
+        """Planner mode: spot order recovery + spot stop coverage / breaker exits only. No entries,
+        no sleeves, no trend exits, no trailing, no news sentiment."""
+        self.mode_detail = "maintain"
+        self.block_longs = True
+        self.spot = None
+        if not self.swaps_blocked:
+            spot = SpotManager(self)
+            try:
+                spot.recover_pending()
+            except Exception as e:
+                self.err(f"spot order recovery: {e}")
+            try:
+                spot.manage_longs(must_flatten, why)
+            except Exception as e:
+                self.err(f"spot position management: {e}")
+            self.spot = spot
+        self.ev("maintenance only (planner mode): no automatic entries/exits/stop moves")
+        return self.finish(equity, len(positions))
 
     def finish(self, equity=None, n_pos=0):
         save_state(self.st)

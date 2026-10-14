@@ -13,6 +13,9 @@ os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okxbot import bot as B
 from okxbot import config
+# These tests cover the legacy automatic cycle; enable it explicitly (planner mode defaults off).
+for _k in ("AUTO_ENTRIES", "AUTO_TREND_EXITS", "AUTO_TRAIL", "AUTO_LIQ_NUDGE", "AUTO_SLEEVES"):
+    setattr(config, _k, True)
 
 INST = "TEST-USDT-SWAP"
 SPEC = {"instId": INST, "state": "live", "instCategory": "1", "settleCcy": "USDT",

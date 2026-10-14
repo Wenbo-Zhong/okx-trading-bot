@@ -135,3 +135,11 @@ SPOT_MAKER_FEE = 0.001
 # Explicit external planner limits.
 PLAN_MAX_SNAPSHOT_AGE_MIN = 45
 PLAN_MAX_ACTIONS = 6
+
+# ---- Planner mode (2026-10-14): the external planner decides; the bot only maintains safety ----
+# All automatic trade-decision paths are OFF. They remain in code only for backtests / reference.
+AUTO_ENTRIES = False        # C7 swap/spot entry selection (and news-sentiment gating of it)
+AUTO_TREND_EXITS = False    # close positions when the 4h trend flips
+AUTO_TRAIL = False          # chandelier trailing stops
+AUTO_LIQ_NUDGE = False      # liquidation-cluster stop nudges on open positions
+AUTO_SLEEVES = False        # BTC/ETH/OKB spot allocation sleeves

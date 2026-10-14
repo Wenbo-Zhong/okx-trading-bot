@@ -4,8 +4,8 @@ Usage: python3 tests/tradingbot_probe.py read      -> read-only/list + public pa
        python3 tests/tradingbot_probe.py grid      -> create ONE tiny BTC-USDT spot grid, then stop it immediately"""
 import sys, os, json, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
-from okx_client import OKX, OKXError
+from okxbot import config
+from okxbot.okx_client import OKX, OKXError
 assert config.DEMO is True
 READ = [
     ("GET", "/api/v5/tradingBot/grid/orders-algo-pending", {"algoOrdType": "grid"}),

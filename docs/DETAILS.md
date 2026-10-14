@@ -8,17 +8,16 @@ decides entries, places orders with stop-loss/take-profit, manages trails and gu
 ## Layout
 ```
 okx-bot/
-  run_once.py      # one decision cycle (schedule this)
-  report.py        # equity / positions / PnL
-  backtest.py      # historical technical backtest
-  bot.py           # cycle logic
-  strategy.py      # signals + stops
-  risk.py          # sizing + guardrails
-  news.py          # RSS sentiment
-  okx_client.py    # REST client (endpoint whitelist)
-  config.py        # guardrails + strategy params
-  BACKTEST.md      # measured backtest results (honest)
-  data/            # state.json, decisions.jsonl, trades.csv, equity.csv
+  run_once.py      # compat shim -> scripts/run_once.py (live copy only)
+  okxbot/          # core package: bot, strategy, risk, sizing, spot, spot_alloc, news, events,
+                   #   event_dates, event_fetch, funding, tradfi, liqmap, alerts, journal,
+                   #   journal_log, indicators, okx_client, config
+  scripts/         # entry points: run_once.py (one cycle), report.py
+  backtests/       # backtest*.py, bt_*.py
+  experiments/     # experiments*.py (finished one-off studies)
+  tests/           # test_*.py (run as scripts)
+  docs/            # BACKTEST.md, US_STOCKS_OKX.md
+  data/            # state.json, decisions.jsonl, trades.csv, equity.csv (never committed)
 ```
 
 ## Credentials
@@ -32,20 +31,20 @@ Demo Trading API keys only. Permissions: read + trade (never withdraw).
 ## Run
 ```bash
 cd /workspace/okx-bot
-python run_once.py    # fetch → decide → place/manage → log
-python report.py      # print equity / open positions / PnL
-python backtest.py    # re-run technical backtest (writes data/backtest_*)
+python3 -m scripts.run_once    # fetch → decide → place/manage → log
+python3 -m scripts.report      # print equity / open positions / PnL
+python3 -m backtests.backtest    # re-run technical backtest (writes data/backtest_*)
 ```
 
-Dry-run (no keys): same `run_once.py` — public data + decisions logged, no orders.
+Dry-run (no keys): same `scripts/run_once.py` — public data + decisions logged, no orders.
 
 ## Schedule (every hour, a few minutes after the candle close)
 ```bash
 # cron (UTC+8 box clock). OKX 1h candle closes at :00; give it ~2 minutes.
 mkdir -p /workspace/okx-bot/data/logs
 crontab -l 2>/dev/null | grep -v okx-bot; cat <<'CRON'
-2 * * * * cd /workspace/okx-bot && /usr/bin/python3 run_once.py >> data/logs/cron.log 2>&1
-5 * * * * cd /workspace/okx-bot && /usr/bin/python3 report.py >> data/logs/report.log 2>&1
+2 * * * * cd /workspace/okx-bot && /usr/bin/python3 -m scripts.run_once >> data/logs/cron.log 2>&1
+5 * * * * cd /workspace/okx-bot && /usr/bin/python3 -m scripts.report >> data/logs/report.log 2>&1
 CRON
 # Or with systemd timer / your preferred scheduler. Env vars must be available to the job
 # (put them in the crontab line, a file sourced by the job, or the service unit).
@@ -80,48 +79,48 @@ If the account falls back to **Spot** mode, the bot trades **SPOT long-only (1x)
 1h trend filter (close & EMA50 vs EMA200) + 12h Donchian breakout, no MACD/RSI filters.
 Stop 3×ATR(1h), take-profit 2R, chandelier trail 3×ATR after +1R, exit on 1h trend flip, risk 0.5%/trade.
 Backtest: ~2.25 trades/day over the 30-instrument universe, PF ≈1.1. The edge is thin and cost-sensitive.
-Previous default V7 (168h breakout, 4h trend) is documented in BACKTEST.md round 1.
+Previous default V7 (168h breakout, 4h trend) is documented in docs/BACKTEST.md round 1.
 
 
-## Spot module (DEMO mandate 2026-10-10) — `spot.py`, `spot_alloc.py`
-Runs inside every `run_once.py` cycle, **before** swap entries (so USDT freed by sells is usable as swap margin):
+## Spot module (DEMO mandate 2026-10-10) — `okxbot/spot.py`, `okxbot/spot_alloc.py`
+Runs inside every `scripts/run_once.py` cycle, **before** swap entries (so USDT freed by sells is usable as swap margin):
 1. **Allocation sleeves** for `SPOT_ALLOC_COINS` (BTC, ETH, OKB). Sell the whole holding to USDT when the 4h AND 1h trends are
    both down. Buy back with the sleeve's USDT when both are up. Switches are at least 24 h apart and dust under 10 USDT is skipped.
    Sells are allowed even under guardrail locks (they reduce risk); rebuys are not. State: `state.json -> spot.sleeves`.
 2. **Spot C7 longs** (up to `SPOT_MAX_LONGS`=2) on top-20 liquid USDT spot pairs. Sleeve coins, stablecoins and coins with
    an open swap are excluded. Risk 0.5%, notional ≤20% of equity, no leverage or borrowing. An OCO stop/TP is placed right
    after the fill (the position is sold if that fails). Stops trail; exit on trend flip; flattened by guardrails.
-Settings: `config.py` (`SPOT_*`). Backtest: `python3 backtest_spot.py` (BACKTEST.md round 3).
+Settings: `okxbot/config.py` (`SPOT_*`). Backtest: `python3 -m backtests.backtest_spot` (docs/BACKTEST.md round 3).
 
 
 ## Alerts, funding and event/news risk (2026-10-10)
-- `python3 alerts.py` runs standalone. `run_once.py` always ends with an `ALERTS:` section (empty if none).
+- `python3 -m okxbot.alerts` runs standalone. `scripts/run_once.py` always ends with an `ALERTS:` section (empty if none).
   Latest alerts are written to `data/alerts.json`, the history to `data/alerts.jsonl`, and the cooldown state to `data/alerts_state.json` (4h default; funding 8h, events 12h, news 24h).
   - Price: BTC/ETH ±3% in 1h or ±6% in 4h; held/open instruments (swaps, spot holdings, spot longs) ±5% in 1h or ±10% in 4h (from 5m candles).
   - Funding: open swaps PAYING more than 0.05%/8h (8h-equivalent).
   - Events: high-impact macro events in the next 48h, plus an active "entries blocked" window.
   - News: high-impact negative headlines (systemic keywords; hacks/exploits/delistings only if they hit a major venue/asset or are ≥$100M).
-- `funding.py`: one call to `/public/funding-rate?instId=ANY`. New swap entries are skipped if that side would pay >0.05%/8h (`FUNDING_MAX_PAY_8H`).
-- `events.py` + `data/events.json`: FOMC (federalreserve.gov), CPI and NFP (bls.gov), each with its source URL.
-  `python3 events.py --refresh` re-reads the Fed calendar (BLS blocks scripted downloads, so CPI/NFP are maintained by hand).
+- `okxbot/funding.py`: one call to `/public/funding-rate?instId=ANY`. New swap entries are skipped if that side would pay >0.05%/8h (`FUNDING_MAX_PAY_8H`).
+- `okxbot/events.py` + `data/events.json`: FOMC (federalreserve.gov), CPI and NFP (bls.gov), each with its source URL.
+  `python3 -m okxbot.events --refresh` re-reads the Fed calendar (BLS blocks scripted downloads, so CPI/NFP are maintained by hand).
   New entries (swap, spot longs, sleeve rebuys) are blocked from 2h before to 30 min after an event; new size is halved 2–6h before.
-- `news.py`: `high_impact` items in the last 6h block new longs (swap longs, spot longs, sleeve rebuys).
+- `okxbot/news.py`: `high_impact` items in the last 6h block new longs (swap longs, spot longs, sleeve rebuys).
 
 ## US stock / commodity perps (added 2026-10-10)
-`tradfi.py` + config `TRADFI_*`. Every cycle the bot checks each of
+`okxbot/tradfi.py` + config `TRADFI_*`. Every cycle the bot checks each of
 MU CRCL NVDA QQQ MRVL PLTR DELL ORCL MSFT HOOD CRWV ASML LLY XAU CL BZ XAG. An instrument joins the SWAP entry
 universe only if it is live on demo, its demo mark price is within 2% of the production mark, and its production
 24h volume is at least 2M USDT. Sizing is 0.5x crypto risk (0.25%), and 0.25x on weekends and outside US cash hours for stocks.
 Leverage cap (5x), the 20% margin cap, stop-loss on every position and the shared 3-position swap cap are all unchanged.
 Contract value comes from ctVal (1 share for stocks; XAU 0.001, CL 0.1, BZ/XAG 0.01). The funding filter uses the 8h-normalised rate.
-US holidays are not modelled. Backtest: see BACKTEST.md Round 6 (negative on stocks).
+US holidays are not modelled. Backtest: see docs/BACKTEST.md Round 6 (negative on stocks).
 
 ## OKX trading bots (grid / DCA / recurring) on demo
 `tests/tradingbot_probe.py` (read | grid). These endpoints are NOT in the main bot's whitelist. See the report in data/tradingbot_probe_*.json.
 
 ## Estimated liquidation clusters (reference only, added 2026-10-10)
-`liqmap.py`, with config `LIQMAP_*`. There is no free heatmap API (the CoinGlass heatmap needs the paid Professional plan),
-so the map is estimated from OKX public hourly OI plus 1h candles (see BACKTEST.md Round 7). It's used in two places:
+`okxbot/liqmap.py`, with config `LIQMAP_*`. There is no free heatmap API (the CoinGlass heatmap needs the paid Professional plan),
+so the map is estimated from OKX public hourly OI plus 1h candles (see docs/BACKTEST.md Round 7). It's used in two places:
 (a) when a new swap entry is placed, the stop is moved beyond a dense cluster sitting near it (max MAX_STOP_PCT; sizing uses the new stop, TP unchanged);
 (b) the `liq_cluster` alert covers BTC, ETH and held swaps, flags clusters within ±2%, and notes whether our stop is inside one.
 It is never an entry signal. Existing and trailing stops are not nudged.
@@ -132,9 +131,9 @@ The stop is changed with amend-algos and then verified on the exchange. The fall
 Every change is logged to trades.csv (event=stop_nudge) and shown under ALERTS as [stop_adjust].
 
 ## Trade journal (2026-10-10)
-`python3 journal.py` writes `data/journal.csv` (one row per round trip, plus spot-allocation events) and `data/journal.md` (Chinese review).
-`run_once.py` also refreshes both after every cycle. Sources:
-* `data/journal_events.jsonl`: open (with the entry rationale captured at order time), stop (trail / liq_nudge), close_request, close (from OKX positions-history), and alloc events. Written by hooks in bot.py and spot.py.
+`python3 -m okxbot.journal` writes `data/journal.csv` (one row per round trip, plus spot-allocation events) and `data/journal.md` (Chinese review).
+`scripts/run_once.py` also refreshes both after every cycle. Sources:
+* `data/journal_events.jsonl`: open (with the entry rationale captured at order time), stop (trail / liq_nudge), close_request, close (from OKX positions-history), and alloc events. Written by hooks in okxbot/bot.py and okxbot/spot.py.
 * Live positions (unrealized PnL, fees, funding) and production 15m candles (MFE/MAE).
 Trades before 2026-10-10 17:30 were backfilled by `journal_backfill.py`; their rationale is marked reconstructed.
 
@@ -145,7 +144,7 @@ Trades before 2026-10-10 17:30 were backfilled by `journal_backfill.py`; their r
   Shorts, tradfi (XAU/QQQ/...) and genuinely levered longs (>1x) stay swaps. Routed spot longs count toward
   `MAX_POSITIONS` (not the separate `SPOT_MAX_LONGS`), and a coin held as spot is not also opened as a swap.
   Liq-map stop nudge does not apply to routed spot longs (the map is swap-OI based).
-- **Pre-order clamps** (`sizing.py`): before every order, size = min(risk size, affordable size, exchange cap,
+- **Pre-order clamps** (`okxbot/sizing.py`): before every order, size = min(risk size, affordable size, exchange cap,
   market-order cap), rounded down to lot; skip if below minimum.
   Swap: after `set-leverage`, `GET /api/v5/account/max-size` (maxBuy/maxSell already includes position-tier caps
   at the current leverage + existing position + pending orders, e.g. ZRO 620 ct at 1x) and margin =
@@ -155,7 +154,7 @@ Trades before 2026-10-10 17:30 were backfilled by `journal_backfill.py`; their r
 
 ## Funding-harvest exception (2026-10-12; **disabled 2026-10-14**)
 - **Off by default:** `FUNDING_HARVEST_ENABLED = False`. Spot preference only (`SPOT_PREFER_FOR_LOW_LEV_LONGS`).
-  Backtest (`bt_harvest.py`) showed ~11 harvest trades/year, win rate ~18%, net loss on price; live demo never
+  Backtest (`backtests/bt_harvest.py`) showed ~11 harvest trades/year, win rate ~18%, net loss on price; live demo never
   opened one. Set the flag True to re-enable without code changes.
 - When enabled: if a long would be ~1x (normally routed to spot) but the swap's current 8h-equivalent funding is
   <= -`FUNDING_HARVEST_MIN_8H` (0.02%/8h ≈ 22%/yr received by longs) AND the last settled rate was <= 0, the bot

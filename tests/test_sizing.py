@@ -1,8 +1,10 @@
 """Unit + mocked-integration tests for spot preference and pre-order clamps. Run: python3 tests/test_sizing.py"""
 import os, sys, types
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config, sizing, risk
-import bot as B
+from okxbot import config
+from okxbot import sizing
+from okxbot import risk
+from okxbot import bot as B
 
 def t_prefer():
     assert sizing.prefer_spot(1, 1, True, False)

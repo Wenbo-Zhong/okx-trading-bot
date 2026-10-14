@@ -1,8 +1,10 @@
 """Partial-fill / depth-cap tests. Run: cd tests && python3 test_fills.py"""
 import os, sys, types
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config, sizing, spot as S
-import bot as B
+from okxbot import config
+from okxbot import sizing
+from okxbot import spot as S
+from okxbot import bot as B
 from test_sizing import fake_bot
 
 def t_fill_summary_zro():

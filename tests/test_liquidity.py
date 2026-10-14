@@ -1,7 +1,8 @@
 """Liquidity filter + stop-slippage buffer tests. Run: cd tests && python3 test_liquidity.py"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config, sizing
+from okxbot import config
+from okxbot import sizing
 from test_sizing import fake_bot
 
 DEEP = {"asks": [["100.01", "1e6"]], "bids": [["99.99", "1e6"]]}
@@ -30,7 +31,7 @@ def t_contract_units():
     assert ok and info["depth_stop_usdt"] > 90000
 
 def t_bot_skips_thin_book_and_journals():
-    import journal_log as J
+    from okxbot import journal_log as J
     rec = []; J.record = lambda ev, **k: rec.append((ev, k))
     config.LIQMAP_STOP_NUDGE = False
     b, _ = fake_bot(100000, None)

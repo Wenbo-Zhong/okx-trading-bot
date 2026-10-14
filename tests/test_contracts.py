@@ -1,7 +1,8 @@
 """Contract-spec / order sanity tests (LIT 10x incident). Run: cd tests && python3 test_contracts.py"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config, sizing
+from okxbot import config
+from okxbot import sizing
 from test_sizing import fake_bot
 
 def t_merge_uses_demo_specs():

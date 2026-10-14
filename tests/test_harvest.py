@@ -5,8 +5,10 @@ harvest path temporarily force the flag on and restore it afterward.
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config, sizing, funding
-import bot as B
+from okxbot import config
+from okxbot import sizing
+from okxbot import funding
+from okxbot import bot as B
 from test_sizing import fake_bot
 
 def t_rule():
@@ -71,7 +73,7 @@ def t_manage_flag_and_close():
     assert closed == [("ZRO-USDT-SWAP", "funding_flip")]   # trend positions untouched
 
 def t_journal_labels():
-    import journal
+    from okxbot import journal
     assert journal.INTENT_ZH["funding_harvest"] == "吃资金费率"
     assert journal.classify_exit({"side": "long"}, {"reason": "funding_flip"}, [], []) == "funding_flip"
 

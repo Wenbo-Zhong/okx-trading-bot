@@ -17,7 +17,23 @@
 
 **成绩如实说明：** 回测收益不高（约 +8%～+26%，盈亏比约 1.1），模拟盘实跑目前是**亏损**的（约 −10%，含一次合约面值 bug）。请不要把它当成赚钱工具。
 
-详细设计见 [docs/DETAILS.md](docs/DETAILS.md)，回测记录见 [BACKTEST.md](BACKTEST.md)。
+详细设计见 [docs/DETAILS.md](docs/DETAILS.md)，回测记录见 [docs/BACKTEST.md](docs/BACKTEST.md)。
+
+## 目录结构
+
+```
+okxbot/        核心代码包：bot、strategy、risk、sizing、spot、spot_alloc、news、events、
+               event_dates、event_fetch、funding、tradfi、liqmap、alerts、journal、
+               journal_log、indicators、okx_client、config
+scripts/       入口脚本：run_once.py（跑一轮决策）、report.py（报表）
+backtests/     回测脚本：backtest*.py、bt_*.py
+experiments/   已完成的实验脚本：experiments*.py
+tests/         测试，直接用 python3 运行
+docs/          BACKTEST.md、DETAILS.md、US_STOCKS_OKX.md
+data/          运行数据（不入库）
+```
+
+所有命令都在项目根目录下用 `python3 -m 包名.脚本名` 运行，例如 `python3 -m backtests.backtest`。
 
 ## 安装与运行
 
@@ -25,8 +41,8 @@
 python3 -m pip install requests pandas numpy   # 按 import 报错补装
 cp .env.example .env    # 填入 OKX 模拟盘 API key（只给读取+交易权限，绝不开提币）
 set -a; . ./.env; set +a
-python3 run_once.py     # 跑一轮决策；没有 key 时只做 dry-run
-python3 report.py       # 查看权益 / 持仓 / 盈亏
+python3 -m scripts.run_once     # 跑一轮决策；没有 key 时只做 dry-run
+python3 -m scripts.report       # 查看权益 / 持仓 / 盈亏
 ```
 
 定时运行可用 cron，例如 `8,38 * * * *`。运行数据写在 `data/`（已被 .gitignore 排除）。
@@ -39,7 +55,7 @@ for t in tests/test_*.py; do python3 "$t"; done
 
 ## English summary
 
-Trend-following bot for OKX v5 (strategy "C7"), demo mode by default. Guardrails: ≤5x leverage, ≤3 swaps, mandatory stop-loss, 0.5% risk/trade, −10% daily lock, −40% drawdown halt, spot-preferred longs, balance/exchange-limit-aware sizing, thin-book filter and slippage buffer. Backtests are modest and the live demo has been **losing money**. Configure credentials via `.env` (see `.env.example`), run `python3 run_once.py`, run `tests/test_*.py` directly.
+Trend-following bot for OKX v5 (strategy "C7"), demo mode by default. Guardrails: ≤5x leverage, ≤3 swaps, mandatory stop-loss, 0.5% risk/trade, −10% daily lock, −40% drawdown halt, spot-preferred longs, balance/exchange-limit-aware sizing, thin-book filter and slippage buffer. Backtests are modest and the live demo has been **losing money**. Configure credentials via `.env` (see `.env.example`), run `python3 -m scripts.run_once`, run `tests/test_*.py` directly.
 
 ## License
 

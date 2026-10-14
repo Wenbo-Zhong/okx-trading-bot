@@ -1,8 +1,8 @@
 """Stop-loss live last/mark clamp + soft amend skip. Run: python3 tests/test_sl_clamp.py"""
 import os, sys, types
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
-import bot as B
+from okxbot import config
+from okxbot import bot as B
 
 
 def t_short_clamp_below_mark():
@@ -83,7 +83,7 @@ def _bot_for_replace():
     b.place_protective_sl = lambda *a, **k: b.x.place_algo({
         "slTriggerPx": B.fmt_px(a[3], "0.01"), "sz": str(a[2]), "slTriggerPxType": "mark"})
     # speed up confirm loop
-    import bot as botmod
+    from okxbot import bot as botmod
     botmod.time.sleep = lambda s: None
     return b
 
@@ -116,7 +116,7 @@ def t_liq_nudge_rejects_marketable_vs_live():
     b = _bot_for_replace()
     b.x.current_levels_called = False
     # stub liqmap path: force a candidate below live mark
-    import liqmap
+    from okxbot import liqmap
     orig = liqmap.current_levels
     liqmap.current_levels = lambda *a, **k: ([], None)
     # adjust_stop won't find clusters with empty levels -> None; instead monkeypatch adjust_stop

@@ -5,7 +5,7 @@ BASE_URL = "https://www.okx.com"
 DEMO = True  # simulated trading only; sends header x-simulated-trading: 1
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT_DIR, "data")
+DATA_DIR = os.environ.get("OKXBOT_DATA_DIR") or os.path.join(ROOT_DIR, "data")
 TIMEZONE = "Asia/Shanghai"      # day boundary for the daily loss limit
 
 # ---- Guardrails (hard limits) ----

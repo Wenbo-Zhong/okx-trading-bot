@@ -7,6 +7,9 @@ from unittest.mock import patch
 
 import pandas as pd
 
+import tempfile
+os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backtests import backtest as B
 

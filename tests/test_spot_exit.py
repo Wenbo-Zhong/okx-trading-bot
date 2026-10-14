@@ -4,6 +4,9 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import tempfile
+os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okxbot.spot import SpotManager
 from okxbot.okx_client import OKXError

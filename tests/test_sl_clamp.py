@@ -1,5 +1,8 @@
 """Stop-loss live last/mark clamp + soft amend skip. Run: python3 tests/test_sl_clamp.py"""
 import os, sys, types
+import tempfile
+os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okxbot import config
 from okxbot import bot as B

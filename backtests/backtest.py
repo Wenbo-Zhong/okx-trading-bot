@@ -227,9 +227,16 @@ def run(insts, n_bars, start_eq=500.0, verbose=False, t_from=None, t_to=None, fu
 if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 8760
     insts = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP", "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "SUI-USDT-SWAP"]
+    from backtests.provenance import provenance
+    metadata = provenance()
+    metadata["run_args"] = {"insts": insts, "n_bars": n, "start_eq": 500.0}
     res, trades, curve = run(insts, n)
     print(json.dumps(res, indent=1))
     for i in insts:
         r, _, _ = run([i], n)
         print(i, {k: r[k] for k in ["return_pct", "max_dd_pct", "trades", "win_rate_pct", "profit_factor"]})
-    pd.DataFrame(trades).to_csv(os.path.join(config.DATA_DIR, "backtest_trades.csv"), index=False)
+    csv_path = os.path.join(config.DATA_DIR, "backtest_trades.csv")
+    pd.DataFrame(trades).to_csv(csv_path, index=False)
+    with open(csv_path + ".meta.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+        f.write("\n")

@@ -1,5 +1,8 @@
 """Liquidity filter + stop-slippage buffer tests. Run: cd tests && python3 test_liquidity.py"""
 import os, sys
+import tempfile
+os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okxbot import config
 from okxbot import sizing

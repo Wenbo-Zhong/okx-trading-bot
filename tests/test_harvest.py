@@ -4,6 +4,9 @@ Default config has FUNDING_HARVEST_ENABLED=False (spot prefer only). Tests that 
 harvest path temporarily force the flag on and restore it afterward.
 """
 import os, sys
+import tempfile
+os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okxbot import config
 from okxbot import sizing

@@ -2,11 +2,13 @@
 import json
 import os
 import sys
-import tempfile
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
 import pandas as pd
+
+import tempfile
+os.environ.setdefault("OKXBOT_DATA_DIR", tempfile.mkdtemp())
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okxbot import bot as B

@@ -404,10 +404,11 @@ class Bot:
             self.err(f"account fetch failed: {e}")
             return self.finish()
         # Prefer SWAP; if Spot-mode blocks perps, fall back to SPOT (long-only) so demo can still learn.
+        self.inst_type = "SPOT" if self.swaps_blocked else "SWAP"
+        self.instr, self.last_px = {}, {}
         try:
             if self.swaps_blocked:
                 self.ev("SWAP blocked by account mode -> trading SPOT (long-only, 1x) until Futures/Multi-currency is enabled in OKX Demo UI")
-                universe = self.universe("SPOT")
                 positions = []  # spot holdings tracked via state, not /account/positions
                 # rebuild open spot positions from state against balances
                 if self.live:
@@ -422,30 +423,9 @@ class Bot:
                         else:
                             positions.append({"instId": inst_id, "pos": str(held[base]), "posSide": "net",
                                               "avgPx": str(rec.get("entry", 0)), "upl": "0", "margin": "0", "lever": "1"})
-            else:
-                universe = self.universe("SWAP")
         except Exception as e:
-            self.err(f"universe fetch failed: {e}")
+            self.err(f"account/positions reconcile failed: {e}")
             return self.finish()
-        self.log["equity"] = equity
-        if st.get("start_equity") is None:
-            st["start_equity"] = equity
-        today = now_local().date().isoformat()
-        if st.get("day") != today or not st.get("day_start_equity"):
-            st["day"], st["day_start_equity"], st["day_locked"] = today, equity, False
-        elif equity > 0 and abs(equity / st["day_start_equity"] - 1) > 0.5:
-            st["day_start_equity"] = equity
-            self.ev("reset day_start_equity after large equity jump", day_start=round(equity, 2))
-        if not st.get("start_equity"):
-            st["start_equity"] = equity
-        if not st.get("peak_equity"):
-            st["peak_equity"] = equity
-        can_open, must_flatten, why = guardrail_status(st, equity)
-        self.ev("guardrails", equity=round(equity, 2), peak=round(st["peak_equity"], 2),
-                day_start=round(st["day_start_equity"], 2), can_open=can_open, status=why)
-        if st.get("halted"):
-            open(HALT_F, "w").write(st.get("halt_reason", "") + "\n")
-
         # ---- reconcile: positions the exchange closed (SL/TP hit)
         live_ids = {p["instId"] for p in positions}
         for inst_id in list(st["positions"]):
@@ -471,6 +451,25 @@ class Bot:
                          fee=hh.get("fee"), funding=hh.get("fundingFee"), close_type=hh.get("type"),
                          close_time_ms=int(hh.get("uTime") or 0) or None, last_stop=rec.get("stop"), tp=rec.get("tp"),
                          init_stop=rec.get("init_stop"))
+
+        self.log["equity"] = equity
+        if st.get("start_equity") is None:
+            st["start_equity"] = equity
+        today = now_local().date().isoformat()
+        if st.get("day") != today or not st.get("day_start_equity"):
+            st["day"], st["day_start_equity"], st["day_locked"] = today, equity, False
+        elif equity > 0 and abs(equity / st["day_start_equity"] - 1) > 0.5:
+            st["day_start_equity"] = equity
+            self.ev("reset day_start_equity after large equity jump", day_start=round(equity, 2))
+        if not st.get("start_equity"):
+            st["start_equity"] = equity
+        if not st.get("peak_equity"):
+            st["peak_equity"] = equity
+        can_open, must_flatten, why = guardrail_status(st, equity)
+        self.ev("guardrails", equity=round(equity, 2), peak=round(st["peak_equity"], 2),
+                day_start=round(st["day_start_equity"], 2), can_open=can_open, status=why)
+        if st.get("halted"):
+            open(HALT_F, "w").write(st.get("halt_reason", "") + "\n")
 
         # ---- flatten if guardrail says so
         if must_flatten and positions:
@@ -512,12 +511,17 @@ class Bot:
                     except OKXError as e:
                         self.err(f"cancel redundant SL {inst_id}: {e}")
                 rec["contracts"] = abs(pos_amt)
+                # Fetch only this held instrument; risk management must not depend on the universe.
+                self.instr[inst_id] = self.x._req(
+                    "GET", "/api/v5/public/instruments", {"instType": self.inst_type, "instId": inst_id},
+                    demo_public=bool(self.live and config.DEMO))[0]
                 tick = self.instr[inst_id]["tickSz"]
                 ps = p.get("posSide") if p.get("posSide") != "net" else None
                 # Live demo last/mark (from /account/positions) — never use a stale candle close for SL validity.
                 live_last, live_mark = live_sl_refs(p)
-                if live_last is None and hasattr(self, "last_px"):
-                    live_last = self.last_px.get(inst_id)
+                if live_last is None:
+                    live_last = float(self.x._req(
+                        "GET", "/api/v5/market/ticker", {"instId": inst_id})[0]["last"])
                 live_ref = live_mark or live_last or float(last["c"])
                 # trail level computed above; never loosen vs the live exchange stop except via the liq nudge
                 if algo is not None:
@@ -587,6 +591,16 @@ class Bot:
             except Exception as e:
                 self.err(f"manage {inst_id}: {e}")
 
+        # Universe availability gates every kind of new entry, never position management.
+        universe, universe_failed = [], False
+        try:
+            universe = self.universe(self.inst_type)
+        except Exception as e:
+            universe_failed = True
+            self.err(f"universe fetch failed: {e}")
+        if universe_failed:
+            can_open = False
+
         # ---- spot: allocation sleeves (BTC/ETH/OKB hold-or-USDT) + manage spot longs. Runs before swap
         #      entries so USDT freed by sleeve sells is available as swap margin this same cycle.
         # ---- news + macro-event + funding risk inputs (computed before any new entry, spot or swap)
@@ -655,7 +669,7 @@ class Bot:
         routed = [k for k, r in (st.get("spot", {}).get("longs") or {}).items() if r.get("routed_from")]
         slots = config.MAX_POSITIONS - len(positions) - len(routed)
         if not can_open or slots <= 0:
-            self.ev("no new swap entries", reason=why if not can_open else "max swap positions reached")
+            self.ev("no new swap entries", reason=("universe fetch failed" if universe_failed else why) if not can_open else "max swap positions reached")
             spot_entries()
             return self.finish(equity, len(positions))
         cands, scanned = [], {}

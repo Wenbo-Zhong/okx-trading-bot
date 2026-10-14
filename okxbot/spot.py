@@ -34,7 +34,80 @@ class SpotManager:
         self.st.setdefault("sleeves", {})
         self.st.setdefault("longs", {})
         self.st.setdefault("last_signal_ts", {})
+        self.st.setdefault("pending_orders", {})
         self.inst, self.last, self.vol = {}, {}, {}
+
+    def held_market(self, inst_id):
+        """Load only a held instrument; use durable specs if the bulk market feed is down."""
+        rec = self.st["longs"].get(inst_id, {})
+        if inst_id not in self.inst:
+            cached = rec.get("spec")
+            self.inst[inst_id] = cached or self.x._req(
+                "GET", "/api/v5/public/instruments", {"instType": "SPOT", "instId": inst_id},
+                demo_public=bool(config.DEMO))[0]
+        if inst_id not in self.last:
+            try:
+                self.last[inst_id] = float(self.x._req(
+                    "GET", "/api/v5/market/ticker", {"instId": inst_id},
+                    demo_public=bool(config.DEMO))[0]["last"])
+            except Exception as e:
+                self.b.err(f"held spot ticker {inst_id}: {e}")
+        return self.inst[inst_id]
+
+    def complete_order(self, ord_id):
+        for key, pending in list(self.st["pending_orders"].items()):
+            if pending.get("ordId") == ord_id:
+                self.st["pending_orders"].pop(key)
+        self.save_state()
+
+    def recover_pending(self):
+        """Resolve accepted/unknown buys without submitting a second order."""
+        for key, pending in list(self.st["pending_orders"].items()):
+            inst_id = pending["body"]["instId"]
+            try:
+                if pending.get("ordId"):
+                    order = self.x.get_order(inst_id, pending["ordId"])[0]
+                else:
+                    order = self.x._req("GET", "/api/v5/trade/order",
+                                        {"instId": inst_id, "clOrdId": key}, private=True)[0]
+                    pending["ordId"] = order["ordId"]
+                    self.save_state()
+                if order.get("state") not in ("filled", "canceled", "mmp_canceled"):
+                    self.x.cancel_order(inst_id, pending["ordId"])
+                    order = self.x.get_order(inst_id, pending["ordId"])[0]
+                    if order.get("state") not in ("filled", "canceled", "mmp_canceled"):
+                        raise OKXError("buy not terminal after cancellation")
+                qty, px = float(order.get("accFillSz") or 0), float(order.get("avgPx") or 0)
+                if qty > 0:
+                    if px <= 0:
+                        raise OKXError("filled buy has no average price")
+                    current = self.st["longs"].get(inst_id)
+                    if current and current.get("ordId") != pending["ordId"]:
+                        raise OKXError("recovered buy conflicts with a different tracked position")
+                    if not current:
+                        plan = pending["plan"]
+                        self.inst[inst_id] = plan["spec"]
+                        self.last[inst_id] = px
+                        fee = float(order.get("fee") or 0)
+                        qty = _rd(qty + (fee if order.get("feeCcy") == inst_id.split("-")[0] else 0),
+                                  plan["spec"]["lotSz"])
+                        stop, tp = initial_stop_tp(1, px, plan["atr"])
+                        stop, tp = (stop, tp) if stop is not None else (plan["stop"], plan["tp"])
+                        self.st["longs"][inst_id] = {
+                            "qty": qty, "entry": px, "init_stop": stop, "stop": stop, "tp": tp,
+                            "entry_ts": plan["bar_ts"] + 3600_000, "ordId": pending["ordId"],
+                            "trade_id": pending["ordId"], "routed_from": plan.get("routed_from"),
+                            "spec": plan["spec"], "planned_risk_usdt": (px - stop) * qty}
+                        J.record("open", trade_id=pending["ordId"], instId=inst_id, market="spot",
+                                 side="long", entry=px, size=qty, ct_val=1, lev=1, init_stop=stop, tp=tp,
+                                 planned_risk_usdt=(px - stop) * qty,
+                                 rationale={"recovered_pending_order": True})
+                self.complete_order(pending["ordId"])
+                self.b.ev("recovered spot order", instId=inst_id, ordId=pending["ordId"], filled=qty)
+            except Exception as e:
+                # A missing/unknown response is not proof that an order was never accepted.
+                self.b.err(f"pending spot order {key}: {e}; new entries blocked")
+        return not self.st["pending_orders"]
 
     # ---------- helpers ----------
     def save_state(self):
@@ -77,14 +150,29 @@ class SpotManager:
                 break
         return o
 
-    def market(self, inst_id, side, sz, quote=False, tag=""):
+    def market(self, inst_id, side, sz, quote=False, tag="", plan=None):
         body = {"instId": inst_id, "tdMode": "cash", "side": side, "ordType": "market", "sz": str(sz),
                 "clOrdId": ("bs" + tag + uuid.uuid4().hex)[:32]}
         if quote:
             body["tgtCcy"] = "quote_ccy"
+        if plan is not None:
+            self.st["pending_orders"][body["clOrdId"]] = {"body": body, "plan": plan}
+            self.save_state()  # intent survives a crash before the POST response
         res = self.x.place_order(body)[0]
+        if res.get("sCode") not in (None, "", "0") or not res.get("ordId"):
+            if plan is not None:
+                self.st["pending_orders"].pop(body["clOrdId"], None)
+                self.save_state()
+            raise OKXError(f"spot order rejected: {res}")
+        if plan is not None:
+            self.st["pending_orders"][body["clOrdId"]]["ordId"] = res["ordId"]
         self.save_state()
         o = self.fill(inst_id, res["ordId"])
+        if plan is not None and o.get("state") not in ("filled", "canceled", "mmp_canceled"):
+            self.x.cancel_order(inst_id, res["ordId"])
+            o = self.x.get_order(inst_id, res["ordId"])[0]
+            if o.get("state") not in ("filled", "canceled", "mmp_canceled"):
+                raise OKXError("spot buy still pending; recovery required")
         fsz, fpx = float(o.get("accFillSz") or 0), float(o.get("avgPx") or 0)
         fee, fee_ccy = float(o.get("fee") or 0), o.get("feeCcy")
         notional, partial = fill_summary(float(sz), fsz, fpx, quote=quote)
@@ -193,8 +281,123 @@ class SpotManager:
 
     # ---------- 2. C7 spot longs ----------
     def sl_algo(self, inst_id):
-        algos = [a for a in self.x.pending_algos(inst_id, "SPOT") if a.get("slTriggerPx")]
+        algos = self.long_algos(inst_id)
         return max(algos, key=lambda a: float(a.get("sz") or 0)) if algos else None
+
+    def long_algos(self, inst_id):
+        return [a for a in self.x.pending_algos(inst_id, "SPOT")
+                if a.get("slTriggerPx") and a.get("side", "sell") == "sell"]
+
+    def remember_algo(self, inst_id, result):
+        for item in result:
+            if item.get("sCode") not in (None, "", "0"):
+                raise OKXError(f"spot protection rejected: {item}")
+            if item.get("algoId"):
+                rec = self.st["longs"][inst_id]
+                ids = rec.setdefault("algo_ids", [])
+                if item["algoId"] not in ids:
+                    ids.append(item["algoId"])
+        self.save_state()
+
+    def reconcile_long(self, inst_id, balance):
+        """Apply cumulative child-order fills once; balance changes never imply a full exit."""
+        rec = self.st["longs"][inst_id]
+        live = self.long_algos(inst_id)
+        ids = rec.setdefault("algo_ids", [])
+        for algo in live:
+            if algo.get("algoId") and algo["algoId"] not in ids:
+                ids.append(algo["algoId"])
+        rec["exit_orders_pending"] = False
+        seen = rec.setdefault("exit_fills", {})
+        for algo_id in ids:
+            try:
+                algo = self.x.get_algo(algo_id)[0]
+            except Exception as e:
+                self.b.err(f"spot algo reconciliation {inst_id}/{algo_id}: {e}")
+                self.b.protection_failed = True
+                continue
+            children = algo.get("ordIdList") or ([algo["ordId"]] if algo.get("ordId") else [])
+            for ord_id in children:
+                try:
+                    order = self.x.get_order(inst_id, ord_id)[0]
+                except Exception as e:
+                    self.b.err(f"spot exit reconciliation {inst_id}/{ord_id}: {e}")
+                    self.b.protection_failed = True
+                    continue
+                if order.get("state") not in ("filled", "canceled", "mmp_canceled"):
+                    self.x.cancel_order(inst_id, ord_id)
+                    order = self.x.get_order(inst_id, ord_id)[0]
+                    if order.get("state") not in ("filled", "canceled", "mmp_canceled"):
+                        rec["exit_orders_pending"] = True
+                filled, avg = float(order.get("accFillSz") or 0), float(order.get("avgPx") or 0)
+                old = seen.get(ord_id, {"size": 0, "notional": 0, "fee": 0})
+                delta = filled - old["size"]
+                if delta <= 1e-9:
+                    continue
+                unresolved = rec.get("unreconciled_qty", 0.0)
+                if avg <= 0 or delta > rec["qty"] + unresolved + 1e-6:
+                    raise OKXError(f"inconsistent exit fill for {ord_id}; keeping position")
+                notional = filled * avg
+                fee = float(order.get("fee") or 0) if order.get("feeCcy") == "USDT" else 0.0
+                delta_fee = fee - old["fee"]
+                px = (notional - old["notional"]) / delta
+                rec["qty"] = max(0.0, rec["qty"] - max(0.0, delta - unresolved))
+                rec["unreconciled_qty"] = max(0.0, unresolved - delta)
+                J.record("close", instId=inst_id, trade_id=rec.get("trade_id") or rec.get("ordId"),
+                         execution_id=f"{ord_id}:{filled:g}", source="exchange algo fill", size=delta,
+                         remaining=rec["qty"], exit=px, fee=delta_fee,
+                         realized_pnl=(px - rec["entry"]) * delta + delta_fee,
+                         last_stop=rec.get("stop"), tp=rec.get("tp"))
+                seen[ord_id] = {"size": filled, "notional": notional, "fee": fee}
+                self.save_state()
+        held = max(0.0, balance.get("eq", 0.0))
+        if held + 1e-9 < rec["qty"]:
+            # Legacy positions may lack algo IDs. Keep the real remainder and report the gap,
+            # without inventing an execution price or PnL from a ticker snapshot.
+            self.b.err(f"spot balance discrepancy {inst_id}: tracked {rec['qty']:g}, held {held:g}; PnL unresolved")
+            rec["unreconciled_qty"] = rec.get("unreconciled_qty", 0.0) + rec["qty"] - held
+            rec["qty"] = held
+            rec["reconcile_gap"] = True
+            self.b.protection_failed = True
+        if rec["qty"] <= 1e-9 and rec.get("unreconciled_qty", 0.0) <= 1e-9:
+            self.st["longs"].pop(inst_id)
+        if rec.get("unreconciled_qty", 0.0) > 1e-9:
+            self.b.protection_failed = True
+        self.save_state()
+        return inst_id in self.st["longs"]
+
+    def protect_long(self, inst_id):
+        """Repair quantity coverage before attempting indicator-based trailing."""
+        from okxbot.bot import clamp_sl_trigger
+        rec, ins = self.st["longs"][inst_id], self.inst[inst_id]
+        algos = self.long_algos(inst_id)
+        covered = sum(float(a.get("sz") or 0) for a in algos)
+        missing = _rd(max(0.0, rec["qty"] - covered), ins["lotSz"])
+        if covered + 1e-9 >= rec["qty"] or rec["qty"] < float(ins["minSz"]):
+            return
+        replace = missing < float(ins["minSz"])
+        if replace:
+            missing = _rd(rec["qty"], ins["lotSz"])
+        ref = self.last.get(inst_id, 0)
+        if ref <= 0:
+            raise OKXError("no live reference for spot protection")
+        stop, _, _ = clamp_sl_trigger(1, rec["stop"], ref)
+        tick = float(ins["tickSz"])
+        stop_px = _px(min(stop, (math.ceil(ref / tick) - 1) * tick), tick)
+        result = self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell",
+                                   "ordType": "conditional", "sz": str(missing),
+                                   "slTriggerPx": stop_px, "slOrdPx": "-1"})
+        self.remember_algo(inst_id, result)
+        for _ in range(4):
+            visible = self.long_algos(inst_id)
+            sufficient = (any(float(a.get("sz") or 0) + 1e-9 >= rec["qty"] for a in visible)
+                          if replace else sum(float(a.get("sz") or 0) for a in visible) + 1e-9 >= rec["qty"])
+            if sufficient:
+                if replace and algos:
+                    self.x.cancel_algos([{"algoId": a["algoId"], "instId": inst_id} for a in algos])
+                return
+            time.sleep(0.5)
+        raise OKXError("spot stop quantity not confirmed")
 
     def exit_long(self, inst_id, reason):
         rec = self.st["longs"].get(inst_id)
@@ -202,7 +405,12 @@ class SpotManager:
             return
         from okxbot.bot import clamp_sl_trigger
         base = inst_id.split("-")[0]
-        ins = self.inst[inst_id]
+        try:
+            ins = self.held_market(inst_id)
+        except Exception as e:
+            self.b.err(f"spot long exit specs {inst_id}: {e}")
+            self.b.protection_failed = True
+            return
         min_sz = float(ins["minSz"])
         needs_stop = False
         ref_px = self.last.get(inst_id, 0)
@@ -226,6 +434,7 @@ class SpotManager:
                     self.b.ev("spot long closed" if rec["qty"] < min_sz else "spot long partially closed",
                               instId=inst_id, reason=reason, qty=f["sz"], remaining=rec["qty"], pnl=round(pnl, 2))
                     J.record("close", instId=inst_id, trade_id=rec.get("trade_id") or rec.get("ordId"), source="bot exit",
+                             execution_id=f"{f['ordId']}:{f['sz']:g}",
                              size=f["sz"], remaining=rec["qty"],
                              exit=f["px"], realized_pnl=round(pnl, 6), fee=f["fee"], fee_ccy=f["feeCcy"], reason=reason,
                              last_stop=rec.get("stop"), tp=rec.get("tp"), init_stop=rec.get("init_stop"))
@@ -248,12 +457,14 @@ class SpotManager:
             stop_px = _px(min(stop, (math.ceil(ref_px / tick) - 1) * tick), tick)
             if not 0 < float(stop_px) < ref_px:
                 raise OKXError("no valid non-marketable stop tick")
-            self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "conditional",
+            result = self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "conditional",
                                "sz": str(_rd(rec["qty"], ins["lotSz"])), "slTriggerPx": stop_px, "slOrdPx": "-1"})
+            self.remember_algo(inst_id, result)
             rec["stop"] = float(stop_px)
             self.save_state()
         except OKXError as e:
             self.b.err(f"spot long restore stop {inst_id}: {e}")
+            self.b.protection_failed = True
 
     def manage_longs(self, must_flatten, why):
         if not self.st["longs"]:
@@ -261,20 +472,25 @@ class SpotManager:
         bals = self.balances() if self.b.live else {}
         for inst_id, rec in list(self.st["longs"].items()):
             base = inst_id.split("-")[0]
-            if must_flatten:
-                self.exit_long(inst_id, "guardrail: " + why); continue
-            if self.b.live and bals.get(base, {}).get("eq", 0.0) < rec["qty"] * 0.5:
-                px = self.last.get(inst_id, rec["entry"])
-                self.log(event="closed", instId=inst_id, side="long", contracts=rec["qty"], price=px,
-                         pnl=round((px - rec["entry"]) * rec["qty"], 4), reason="spot long stop/tp hit (pnl approx at last px)")
-                J.record("close", instId=inst_id, trade_id=rec.get("trade_id") or rec.get("ordId"),
-                         source="exchange SL/TP (pnl approx at last px)", exit=px,
-                         realized_pnl=round((px - rec["entry"]) * rec["qty"], 6), last_stop=rec.get("stop"),
-                         tp=rec.get("tp"), init_stop=rec.get("init_stop"))
-                self.st["longs"].pop(inst_id, None)
-                self.save_state()
-                self.b.ev("spot long closed on exchange (SL/TP)", instId=inst_id); continue
             try:
+                self.held_market(inst_id)
+                if must_flatten:
+                    self.exit_long(inst_id, "guardrail: " + why); continue
+                if self.b.live:
+                    if not self.reconcile_long(inst_id, bals.get(base, {})):
+                        continue
+                    if rec.get("exit_orders_pending"):
+                        raise OKXError("exit child order still pending; new entries blocked")
+                    if rec["qty"] < float(self.inst[inst_id]["minSz"]):
+                        continue
+                if self.b.live:
+                    try:
+                        self.protect_long(inst_id)
+                    except Exception as e:
+                        self.b.protection_failed = True
+                        self.b.err(f"spot protection {inst_id}: {e}; exiting")
+                        self.exit_long(inst_id, "could not confirm stop coverage")
+                        continue
                 f = build_features(self.candles(inst_id))
                 last = f.iloc[-1]
                 if should_exit_on_trend(1, last):
@@ -301,6 +517,7 @@ class SpotManager:
                 self.b.ev("spot long holding", instId=inst_id, entry=rec["entry"], last=self.last.get(inst_id), stop=round(new, 8))
             except Exception as e:
                 self.b.err(f"spot long manage {inst_id}: {e}")
+                self.b.protection_failed = True
 
     def enter_longs(self, equity, news_scores, swap_insts):
         if not config.SPOT_LONGS_ENABLED:
@@ -348,6 +565,9 @@ class SpotManager:
         """Risk-sized spot market buy + OCO stop/TP. routed_from = swap instId when a ~1x swap long signal
         was routed here (config.SPOT_PREFER_FOR_LOW_LEV_LONGS). Returns True if a position was opened
         (or would be, in dry-run)."""
+        if self.st["pending_orders"] or inst_id in self.st["longs"]:
+            self.b.ev("spot entry skipped: held or unresolved order", instId=inst_id)
+            return False
         ins, px = self.inst[inst_id], self.last[inst_id]
         stop, tp = initial_stop_tp(1, px, atr_v)
         if stop is None:
@@ -388,31 +608,18 @@ class SpotManager:
                       stop=_px(stop, tick), tp=_px(tp, tick), routed_from=routed_from)
             return True
         try:
-            f = self.market(inst_id, "buy", notional, quote=True, tag="l")
+            f = self.market(inst_id, "buy", notional, quote=True, tag="l", plan={
+                "atr": atr_v, "bar_ts": bar_ts, "stop": stop, "tp": tp,
+                "routed_from": routed_from, "spec": ins})
             if f["sz"] <= 0:
+                self.complete_order(f["ordId"])
                 self.b.err(f"spot long {inst_id} not filled"); return False
             qty = f["sz"] + (f["fee"] if f["feeCcy"] == inst_id.split("-")[0] else 0)  # fee charged in base
             qty = _rd(qty, ins["lotSz"])
             stop, tp = initial_stop_tp(1, f["px"], atr_v) if initial_stop_tp(1, f["px"], atr_v)[0] else (stop, tp)
             self.st["longs"][inst_id] = {"qty": qty, "entry": f["px"], "init_stop": stop, "stop": stop, "tp": tp,
                                          "entry_ts": bar_ts + 3600_000, "ordId": f["ordId"],
-                                         "routed_from": routed_from}
-            self.save_state()
-            try:
-                self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "oco", "sz": str(qty),
-                                   "slTriggerPx": _px(stop, tick), "slOrdPx": "-1",
-                                   "tpTriggerPx": _px(tp, tick), "tpOrdPx": "-1"})
-                self.save_state()
-            except OKXError as e:
-                self.b.err(f"spot long {inst_id}: stop placement failed ({e}) -> selling")
-                self.exit_long(inst_id, "could not place stop"); return False
-            why = "spot C7 breakout+trend" + (f" (routed from ~1x {routed_from} long)" if routed_from else "")
-            self.log(event="open", instId=inst_id, side="long", contracts=qty, price=f["px"], stop=_px(stop, tick),
-                     tp=_px(tp, tick), leverage=1, notional=round(qty * f["px"], 2),
-                     reason=why + (f" PARTIAL FILL {f['notional']:.2f}/{notional:.2f} USDT" if f["partial"] else ""),
-                     ordId=f["ordId"])
-            self.b.ev("spot long opened", instId=inst_id, qty=qty, px=f["px"], usdt=round(qty * f["px"], 2),
-                      requested_usdt=notional, partial=f["partial"], stop=_px(stop, tick), routed_from=routed_from)
+                                         "routed_from": routed_from, "spec": ins}
             try:
                 ew = self.b.log.get("event_window") or {}
                 ctx = (getattr(self.b, "ctx", {}).get(routed_from) if routed_from else None) or \
@@ -429,6 +636,22 @@ class SpotManager:
                          planned_risk_usdt=round(pr, 4), rationale=rat)
             except Exception as e:
                 self.b.err(f"journal open {inst_id}: {e}")
+            self.complete_order(f["ordId"])
+            try:
+                result = self.x.place_algo({"instId": inst_id, "tdMode": "cash", "side": "sell", "ordType": "oco", "sz": str(qty),
+                                   "slTriggerPx": _px(stop, tick), "slOrdPx": "-1",
+                                   "tpTriggerPx": _px(tp, tick), "tpOrdPx": "-1"})
+                self.remember_algo(inst_id, result)
+            except OKXError as e:
+                self.b.err(f"spot long {inst_id}: stop placement failed ({e}) -> selling")
+                self.exit_long(inst_id, "could not place stop"); return False
+            why = "spot C7 breakout+trend" + (f" (routed from ~1x {routed_from} long)" if routed_from else "")
+            self.log(event="open", instId=inst_id, side="long", contracts=qty, price=f["px"], stop=_px(stop, tick),
+                     tp=_px(tp, tick), leverage=1, notional=round(qty * f["px"], 2),
+                     reason=why + (f" PARTIAL FILL {f['notional']:.2f}/{notional:.2f} USDT" if f["partial"] else ""),
+                     ordId=f["ordId"])
+            self.b.ev("spot long opened", instId=inst_id, qty=qty, px=f["px"], usdt=round(qty * f["px"], 2),
+                      requested_usdt=notional, partial=f["partial"], stop=_px(stop, tick), routed_from=routed_from)
             self.balances()
             return True
         except OKXError as e:

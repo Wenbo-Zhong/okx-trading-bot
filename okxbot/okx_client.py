@@ -183,6 +183,9 @@ class OKX:
     def get_order(self, inst_id, ord_id):
         return self._req("GET", "/api/v5/trade/order", {"instId": inst_id, "ordId": ord_id}, private=True)
 
+    def get_algo(self, algo_id):
+        return self._req("GET", "/api/v5/trade/order-algo", {"algoId": algo_id}, private=True)
+
     def close_position(self, inst_id, pos_side=None):
         body = {"instId": inst_id, "mgnMode": config.TD_MODE, "autoCxl": True}
         if pos_side and pos_side != "net":

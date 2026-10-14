@@ -56,7 +56,7 @@ class FakeX:
         return [SPEC.copy()]
 
     def pending_algos(self, inst_id):
-        return []
+        return [dict(a, algoId=f"stop{i}") for i, a in enumerate(self.algos)]
 
     def place_algo(self, body):
         self.calls.append("protect")
@@ -87,7 +87,7 @@ def fake_bot(failure, equity=1000):
     return b
 
 
-def run_cycle(b, trend_exit=False):
+def run_cycle(b, trend_exit=False, configure_spot=None):
     with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
         for name, filename in [("STATE_F", "state.json"), ("DECISIONS_F", "decisions.jsonl"),
                                ("EQUITY_F", "equity.csv"), ("HALT_F", "HALTED")]:
@@ -103,6 +103,8 @@ def run_cycle(b, trend_exit=False):
         stack.enter_context(patch.object(B.macro_events, "risk_window", return_value=(None, None)))
         stack.enter_context(patch.object(B.funding, "all_rates", return_value={}))
         spot = stack.enter_context(patch.object(B, "SpotManager")).return_value
+        if configure_spot:
+            configure_spot(spot)
         guardrail = B.guardrail_status
 
         def check_guardrails(state, equity):
@@ -217,6 +219,68 @@ def t_account_failure_is_logged_and_ends_cycle():
     spot.manage_longs.assert_not_called()
     assert decision["errors"] == ["account fetch failed: account unavailable"]
     assert not equity_rows and b.x.calls == ["account"]
+
+
+def t_spot_market_outage_does_not_skip_daily_flatten():
+    b = fake_bot(None, 890)
+    def fail_market(spot):
+        spot.load_market.side_effect = B.OKXError("spot feed unavailable")
+    spot, _, decision, _, _ = run_cycle(b, configure_spot=fail_market)
+    assert b.st["day_locked"]
+    assert spot.manage_longs.call_args.args[0] is True
+    spot.run_alloc.assert_not_called()
+    spot.enter_longs.assert_not_called()
+    assert any("spot market" in e for e in decision["errors"])
+
+
+def t_allocation_failure_does_not_skip_spot_management():
+    b = fake_bot(None)
+    def fail_allocation(spot):
+        spot.run_alloc.side_effect = B.OKXError("allocation unavailable")
+    spot, _, _, _, _ = run_cycle(b, configure_spot=fail_allocation)
+    spot.manage_longs.assert_called_once()
+    spot.enter_longs.assert_not_called()
+
+
+def t_new_swap_is_excluded_from_same_cycle_spot_entries():
+    b = fake_bot(None)
+    new_inst = "NEW-USDT-SWAP"
+    b.universe = Mock(return_value=[new_inst])
+    frame = b.features.return_value.copy()
+    frame["signal"], frame["strength"] = 1, 2
+    b.features.return_value = frame
+    b.enter = Mock(side_effect=lambda inst, *args: b.st["positions"].update({inst: {"side": 1}}))
+    spot, _, _, _, _ = run_cycle(b)
+    b.enter.assert_called_once()
+    assert new_inst in spot.enter_longs.call_args.args[2]
+
+
+def t_partial_swap_protection_repaired_without_price_change():
+    b = fake_bot(None)
+    b.x.algos = [{"instId": INST, "side": "sell", "posSide": "net", "sz": "1", "slTriggerPx": "90"}]
+    with patch.object(B, "update_stop", return_value=90):
+        run_cycle(b)
+    assert len(b.x.algos) == 2 and float(b.x.algos[-1]["sz"]) == 1
+    assert not b.x.closed and not getattr(b, "protection_failed", False)
+
+
+def t_unconfirmed_stop_closes_and_blocks_entries():
+    b = fake_bot(None)
+    b.x.pending_algos = Mock(return_value=[])
+    with patch.object(B.time, "sleep"):
+        spot, _, decision, _, _ = run_cycle(b)
+    assert b.protection_failed and b.x.closed == [INST]
+    spot.enter_longs.assert_not_called()
+    assert any("not confirmed" in e for e in decision["errors"])
+
+
+def t_wrong_direction_stop_does_not_count_as_coverage():
+    b = fake_bot(None)
+    b.x.algos = [{"side": "buy", "posSide": "short", "sz": "2", "slTriggerPx": "110"}]
+    with patch.object(B, "update_stop", return_value=90):
+        run_cycle(b)
+    assert len(b.x.algos) == 2 and b.x.algos[-1]["side"] == "sell"
+    assert float(b.x.algos[-1]["sz"]) == 2
 
 
 if __name__ == "__main__":

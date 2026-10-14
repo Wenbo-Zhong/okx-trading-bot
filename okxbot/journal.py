@@ -159,10 +159,35 @@ def causes(o, row, close_ms, stops, hi_runs, x):
     return ("（启发式）" + "；".join(out)) if out else ""
 
 
+def aggregate_closes(events):
+    """Combine exit executions; a partial close keeps the round trip open."""
+    ordered, seen = [], set()
+    for event in sorted(events, key=lambda e: e.get("close_time_ms") or e["time_ms"]):
+        key = event.get("execution_id")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        ordered.append(event)
+    if not ordered:
+        return None
+    result = dict(ordered[-1])
+    for name in ("realized_pnl", "fee", "funding", "pnl"):
+        values = [f(e.get(name)) for e in ordered if f(e.get(name)) is not None]
+        result[name] = sum(values) if values else None
+    sized = [e for e in ordered if f(e.get("size"), 0) > 0 and f(e.get("exit")) is not None]
+    total = sum(f(e["size"]) for e in sized)
+    if total:
+        result["size"] = total
+        result["exit"] = sum(f(e["size"]) * f(e["exit"]) for e in sized) / total
+    return result
+
+
 def build():
     x = OKX()
     ev = J.load()
-    opens = [e for e in ev if e["ev"] == "open"]
+    # A crash between journal append and state commit can replay the same recovered open.
+    opens = list({e["trade_id"]: e for e in ev if e["ev"] == "open"}.values())
     allocs = [e for e in ev if e["ev"] == "alloc"]
     live_pos = {}
     if x.has_keys:
@@ -178,28 +203,32 @@ def build():
         mine = lambda e: e.get("trade_id") == tid or (not e.get("trade_id") and e["instId"] == inst and o["time_ms"] <= e["time_ms"] < later_open)
         stops = sorted([e for e in ev if e["ev"] == "stop" and mine(e)], key=lambda e: e["time_ms"])
         closes = [e for e in ev if e["ev"] == "close" and mine(e)]
-        close = closes[0] if closes else None
+        close = aggregate_closes(closes)
+        fully_closed = close is not None and f(close.get("remaining"), 0) <= 1e-9
         reqs = [e for e in ev if e["ev"] == "close_request" and mine(e)]
-        close_ms = (close.get("close_time_ms") or close["time_ms"]) if close else None
+        close_ms = (close.get("close_time_ms") or close["time_ms"]) if fully_closed else None
         side = 1 if o["side"] == "long" else -1
         ct = f(o.get("ct_val"), 1.0)
         risk_px = abs(f(o["entry"]) - f(o["init_stop"])) if o.get("init_stop") else None
         planned = f(o.get("planned_risk_usdt"))
         pnl = fee = fund = upl = None
-        status = "closed" if close else "open"
-        exit_px = f(close.get("exit")) if close else None
+        status = "closed" if fully_closed else "open"
+        exit_px = f(close.get("exit")) if fully_closed else None
         if close:
             pnl, fee, fund = f(close.get("realized_pnl")), f(close.get("fee")), f(close.get("funding"))
-        elif inst in live_pos:
+        if not fully_closed and inst in live_pos:
             p = live_pos[inst]
-            upl, fee, fund = f(p.get("upl")), f(p.get("fee")), f(p.get("fundingFee"))
+            upl = f(p.get("upl"))
+            if close is None:
+                fee, fund = f(p.get("fee")), f(p.get("fundingFee"))
             exit_px = f(p.get("markPx"))
-        elif o["market"] == "spot":
+        elif not fully_closed and o["market"] == "spot":
             st = json.load(open(os.path.join(config.DATA_DIR, "state.json")))
             if inst in st.get("spot", {}).get("longs", {}):
                 try:
                     exit_px = float(x._req("GET", "/api/v5/market/ticker", {"instId": inst})[0]["last"])
-                    upl = (exit_px - f(o["entry"])) * f(o["size"]) * side
+                    remaining = st["spot"]["longs"][inst]["qty"]
+                    upl = (exit_px - f(o["entry"])) * remaining * side
                 except Exception:
                     pass
             else:
@@ -226,7 +255,7 @@ def build():
                "final_stop": stops[-1]["new"] if stops else o.get("init_stop"), "stop_adjustments": adj,
                "planned_risk_usdt": planned, "realized_pnl_usdt": pnl, "fee_usdt": fee, "funding_usdt": fund,
                "unrealized_pnl_usdt": round(upl, 4) if upl is not None else None, "r_multiple": r_mult,
-               "mfe_r": mfe, "mae_r": mae, "exit_reason": classify_exit(o, close, reqs, stops),
+               "mfe_r": mfe, "mae_r": mae, "exit_reason": classify_exit(o, close if fully_closed else None, reqs, stops),
                "rationale_reconstructed": bool((o.get("rationale") or {}).get("reconstructed")),
                "rationale": json.dumps(o.get("rationale") or {}, ensure_ascii=False, default=str)}
         row["possible_cause"] = causes(o, row, close_ms, stops, hi_runs, x)
@@ -262,7 +291,7 @@ def write_md(rows):
     L += [f"- 交易笔数：共 {len(trades)} 笔（已平仓 {len(closed)}，其中策略交易 {len(strat)}、测试/手动 {len(closed) - len(strat)}；持仓中 {len(opn)}）；另有现货配置事件 {len(rows) - len(trades)} 次",
           f"- 胜率（已平仓策略交易）：{(len(wins) / len(strat) * 100):.0f}%" if strat else "- 胜率（已平仓策略交易）：暂无已平仓策略交易",
           f"- 平均R：{np.mean(rs):+.2f}R" if rs else "- 平均R：-",
-          f"- 已实现盈亏合计：{sum(r['realized_pnl_usdt'] for r in closed):+,.2f} USDT；持仓浮动盈亏：{sum(r.get('unrealized_pnl_usdt') or 0 for r in opn):+,.2f} USDT", ""]
+          f"- 已实现盈亏合计：{sum(r.get('realized_pnl_usdt') or 0 for r in trades):+,.2f} USDT；持仓浮动盈亏：{sum(r.get('unrealized_pnl_usdt') or 0 for r in opn):+,.2f} USDT", ""]
     L += ["### 按市场类型", "", "| 市场 | 笔数(平/持) | 已实现 USDT | 浮动 USDT | 平均R(已平) |", "|---|---|---|---|---|"]
     for m in ["crypto swap", "tradfi swap", "spot"]:
         rr = [r for r in trades if r["market"] == m]
@@ -270,7 +299,7 @@ def write_md(rows):
             continue
         c = [r for r in rr if r["status"] == "closed"]
         rv = [r["r_multiple"] for r in c if r.get("r_multiple") is not None and r["exit_reason"] != "manual"]
-        L.append(f"| {MKT_ZH[m]} | {len(c)}/{len(rr) - len(c)} | {sum(r.get('realized_pnl_usdt') or 0 for r in c):+,.2f} | "
+        L.append(f"| {MKT_ZH[m]} | {len(c)}/{len(rr) - len(c)} | {sum(r.get('realized_pnl_usdt') or 0 for r in rr):+,.2f} | "
                  f"{sum(r.get('unrealized_pnl_usdt') or 0 for r in rr if r['status'] == 'open'):+,.2f} | {(f'{np.mean(rv):+.2f}' if rv else '-')} |")
     fh = [r for r in trades if r.get("intent") == "funding_harvest"]
     L += ["", "### 吃资金费率交易（1x 永续做多，资金费为负时多头收钱）", ""]

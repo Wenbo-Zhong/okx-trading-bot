@@ -126,6 +126,7 @@ class Bot:
         self.swaps_blocked = False
         self.block_longs = False
         self.size_mult = 1.0
+        self.protection_failed = False
         self.funding = {}
         self.usdt_avail = float("inf")
         self.log = {"time": now_local().isoformat(timespec="seconds"), "mode": self.mode,
@@ -315,6 +316,37 @@ class Bot:
         save_state(self.st)
         return result
 
+    def ensure_sl_coverage(self, inst_id, side, size, stop, pos_side, lot):
+        """Count matching stops and verify quantity repairs on the executing venue."""
+        def matching():
+            exit_side = "sell" if side == 1 else "buy"
+            return [a for a in self.sl_algos(inst_id)
+                    if a.get("side", exit_side) == exit_side
+                    and a.get("posSide", pos_side or "net") == (pos_side or "net")]
+        algos = matching()
+        covered = sum(float(a.get("sz") or 0) for a in algos)
+        if covered + 1e-9 >= size:
+            return algos
+        missing = round_step(size - covered, lot)
+        try:
+            if missing <= 0:
+                raise OKXError("uncovered size cannot be rounded to a valid lot")
+            result = self.place_protective_sl(inst_id, side, missing, stop, pos_side)
+            if any(a.get("sCode") not in (None, "", "0") for a in result):
+                raise OKXError(f"stop rejected: {result}")
+            for _ in range(4):
+                algos = matching()
+                if sum(float(a.get("sz") or 0) for a in algos) + 1e-9 >= size:
+                    self.ev("stop coverage repaired", instId=inst_id, size=size)
+                    return algos
+                time.sleep(0.5)
+            raise OKXError("stop quantity not confirmed on exchange")
+        except Exception as e:
+            self.protection_failed = True
+            self.err(f"stop coverage {inst_id}: {e}; closing position and blocking entries")
+            self.close(inst_id, pos_side, "could not confirm stop coverage")
+            return None
+
     def liq_nudge_open(self, inst_id, side, rec, stop, price, atr, last_px=None, mark_px=None):
         """Liquidation-cluster nudge for an OPEN position (reference only). Returns dict or None.
         Constraints: max loss at the new stop <= LIQMAP_MAX_RISK_MULT x original planned risk (entry->init_stop),
@@ -373,7 +405,10 @@ class Bot:
             for _ in range(4):
                 time.sleep(0.5)
                 for a in self.sl_algos(inst_id):
-                    if abs(float(a["slTriggerPx"]) - float(px)) <= float(tick) * 1.01 and float(a.get("sz") or 0) >= size * 0.999:
+                    if (a.get("side", "sell" if side == 1 else "buy") == ("sell" if side == 1 else "buy")
+                            and a.get("posSide", pos_side or "net") == (pos_side or "net")
+                            and abs(float(a["slTriggerPx"]) - float(px)) <= float(tick) * 1.01
+                            and float(a.get("sz") or 0) >= size * 0.999):
                         return a
             return None
         try:
@@ -506,7 +541,11 @@ class Bot:
                 hi = max(rec["entry"], since["h"].max() if len(since) else rec["entry"])
                 lo = min(rec["entry"], since["l"].min() if len(since) else rec["entry"])
                 new_stop = update_stop(side, rec["entry"], rec["init_stop"], rec["stop"], hi, lo, last["atr"])
-                algos = self.sl_algos(inst_id)
+                exit_side = "sell" if side == 1 else "buy"
+                expected_ps = p.get("posSide") or "net"
+                algos = [a for a in self.sl_algos(inst_id)
+                         if a.get("side", exit_side) == exit_side
+                         and a.get("posSide", expected_ps) == expected_ps]
                 algo = algos[0] if algos else None
                 # hygiene: drop redundant smaller stops when the largest one already covers the whole position
                 if algo and len(algos) > 1 and float(algo.get("sz") or 0) >= abs(pos_amt):
@@ -543,13 +582,12 @@ class Bot:
                 if sl_clamped:
                     self.ev("SL clamped to live last/mark", instId=inst_id, reason=sl_reason,
                             last=live_last, mark=live_mark)
-                if algo is None:
-                    self.err(f"{inst_id} had NO stop-loss on exchange -> placing one")
-                    try:
-                        self.place_protective_sl(inst_id, side, abs(pos_amt), new_stop, ps)
-                    except OKXError as e:
-                        self.err(f"protective SL {inst_id} failed ({e})")
-                else:
+                algos = self.ensure_sl_coverage(inst_id, side, abs(pos_amt), new_stop, ps,
+                                               self.instr[inst_id]["lotSz"])
+                if algos is None:
+                    continue
+                algo = algos[0] if algos else None
+                if algo is not None:
                     ex_stop = float(algo["slTriggerPx"])
                     tighter = (side == 1 and new_stop > ex_stop * 1.0005) or (side == -1 and new_stop < ex_stop * 0.9995)
                     moved = abs(new_stop / ex_stop - 1) > 0.0005
@@ -605,6 +643,8 @@ class Bot:
             self.err(f"universe fetch failed: {e}")
         if universe_failed:
             can_open = False
+        if getattr(self, "protection_failed", False):
+            can_open = False
 
         # ---- spot: allocation sleeves (BTC/ETH/OKB hold-or-USDT) + manage spot longs. Runs before swap
         #      entries so USDT freed by sleeve sells is available as swap margin this same cycle.
@@ -652,20 +692,42 @@ class Bot:
         #      entries so USDT freed by sleeve sells is usable as swap margin this same cycle.
         spot = None
         self.spot = None
+        spot_ready = False
         if not self.swaps_blocked:
+            spot = SpotManager(self)
             try:
-                spot = SpotManager(self)
-                spot.load_market()
-                self.spot = spot
-                spot.run_alloc(can_rebuy=can_open and not self.block_longs)
+                if not spot.recover_pending():
+                    can_open = False
+            except Exception as e:
+                can_open = False
+                self.err(f"spot order recovery: {e}")
+            try:
                 spot.manage_longs(must_flatten, why)
             except Exception as e:
-                self.err(f"spot module: {e}")
-
-        def spot_entries():
-            if spot is not None and can_open and not self.block_longs:
+                can_open = False
+                self.err(f"spot position management: {e}")
+            if getattr(self, "protection_failed", False):
+                can_open = False
+            try:
+                spot.load_market()
+                self.spot = spot
+                spot_ready = True
+            except Exception as e:
+                can_open = False
+                self.err(f"spot market: {e}")
+            if spot_ready:
                 try:
-                    spot.enter_longs(equity * self.size_mult, ns, {p["instId"] for p in positions})
+                    spot.run_alloc(can_rebuy=can_open and not self.block_longs)
+                except Exception as e:
+                    can_open = False
+                    self.err(f"spot allocation: {e}")
+
+        attempted_swaps = set()
+        def spot_entries():
+            if spot_ready and can_open and not self.block_longs and not getattr(self, "protection_failed", False):
+                try:
+                    held_now = {p["instId"] for p in positions} | set(st["positions"]) | attempted_swaps
+                    spot.enter_longs(equity * self.size_mult, ns, held_now)
                 except Exception as e:
                     self.err(f"spot longs: {e}")
 
@@ -732,6 +794,9 @@ class Bot:
         self.ev("signals", candidates=[(c[1], c[2], round(c[0], 2)) for c in cands])
         used_margin = sum(float(p.get("margin") or p.get("imr") or 0) for p in positions)
         for score, inst_id, sig, atr_v, bar_ts in cands[:slots]:
+            if getattr(self, "protection_failed", False) or (st.get("spot", {}).get("pending_orders") or {}):
+                break
+            attempted_swaps.add(inst_id)
             self.enter(inst_id, sig, atr_v, bar_ts, equity, used_margin)
         spot_entries()
         return self.finish(equity, len(positions))
@@ -919,19 +984,8 @@ class Bot:
                 algo = self.sl_algo(inst_id)
                 if algo is not None:
                     break
-            if algo is not None and algo.get("sz") not in (None, "", "0") and float(algo["sz"]) + 1e-9 < filled:
-                self.err(f"{inst_id}: SL covers {algo['sz']} < filled {filled} -> adding protective SL for the rest")
-                try:
-                    self.place_protective_sl(inst_id, side, round_step(filled - float(algo["sz"]), lot), stop, pos_side)
-                except OKXError as e:
-                    self.err(f"extra SL failed ({e})")
-            if algo is None:   # guardrail: every position must have a stop
-                self.err(f"{inst_id}: attached SL not found after entry -> placing protective SL")
-                try:
-                    self.place_protective_sl(inst_id, side, filled, stop, pos_side)
-                except OKXError as e:
-                    self.err(f"protective SL failed ({e}) -> closing {inst_id}")
-                    self.close(inst_id, pos_side, "could not place stop-loss"); return
+            if self.ensure_sl_coverage(inst_id, side, filled, stop, pos_side, lot) is None:
+                return
             self.usdt_avail = max(0.0, self.usdt_avail - margin)
             log_trade({"time": now_local().isoformat(timespec="seconds"), "event": "open", "instId": inst_id,
                        "side": plan["side"], "contracts": filled, "price": fill_px, "stop": plan["stop"],

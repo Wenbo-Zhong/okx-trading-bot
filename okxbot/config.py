@@ -79,6 +79,7 @@ SL_TRIGGER_BUFFER_PCT = 0.001  # SL must stay this far beyond live last AND mark
 
 # Endpoints the bot is allowed to call with keys (whitelist). No withdrawal / transfer.
 PRIVATE_WHITELIST = {
+    ("GET", "/api/v5/trade/order-algo"),
     ("GET", "/api/v5/account/balance"),
     ("GET", "/api/v5/account/config"),
     ("GET", "/api/v5/account/positions"),

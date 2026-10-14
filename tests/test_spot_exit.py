@@ -17,7 +17,7 @@ INST = "TEST-USDT"
 def fake_manager(qty=100, avail=100, filled=100, stop=9, last=12, tick="0.01"):
     x = SimpleNamespace(
         pending_algos=Mock(return_value=[{"algoId": "SL"}, {"algoId": "TP"}]),
-        cancel_algos=Mock(), place_algo=Mock(),
+        cancel_algos=Mock(), place_algo=Mock(return_value=[{"algoId": "restored", "sCode": "0"}]),
         balance=Mock(return_value=[{"details": [{"ccy": "TEST", "availBal": str(avail), "eq": str(qty)}]}]),
     )
     b = SimpleNamespace(x=x, st={}, live=True, ev=Mock(), err=Mock())

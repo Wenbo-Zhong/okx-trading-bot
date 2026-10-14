@@ -111,3 +111,16 @@ Trend-following bot for OKX v5 (strategy "C7"), demo mode by default. Guardrails
 Copyright (C) 2026 Wenbo Zhong
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License v3.0 (see [LICENSE](LICENSE)). It is distributed WITHOUT ANY WARRANTY.
+
+## Event monitor (`scripts.monitor`)
+
+Watches a configurable watchlist (majors on 15m/1H, ~15 weekly-rotated alts, US stock tokens during US
+cash hours, commodities, plus held positions) over the OKX market WebSocket, with REST backfill on reconnect,
+low-frequency news polling and hysteresis. Events are written to `data/monitor_events.jsonl`; wakes are
+coalesced and capped (1/hour, 8/day; severe faults bypass). Log-only by default.
+
+    python3 -m scripts.monitor --watchlist [--force]   # dry run: print watchlist
+    python3 -m scripts.monitor                          # run, log-only
+    OKX_WAKE_WEBHOOK_URL=... python3 -m scripts.monitor --enable-wakes
+
+Thresholds live in `okxbot/monitor/settings.py` (override via `data/monitor_config.json`).

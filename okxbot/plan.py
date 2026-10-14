@@ -275,7 +275,14 @@ def validate_action(a, snapshot, state, reserved=None):
         raise ValueError('guardrails prevent opening: ' + why)
     if state.get('plan_pending') or state.get('spot', {}).get('pending_orders'):
         raise ValueError('unresolved order intent blocks entries')
-    existing = [p['instId'] for p in positions] + list(state.get('positions', {})) + list(state.get('spot', {}).get('longs', {}))
+    def counts(p):   # spot dust balances (e.g. fee leftovers) are not positions
+        if p.get('market') != 'spot' or position(state, p['instId']):
+            return True
+        try:
+            return float(p.get('size') or 0) * float(p.get('last') or p.get('avg_px') or 0) >= config.SPOT_MIN_ORDER_USDT
+        except (TypeError, ValueError):
+            return True
+    existing = [p['instId'] for p in positions if counts(p)] + list(state.get('positions', {})) + list(state.get('spot', {}).get('longs', {}))
     existing += [p.get('instId', '') for p in account.get('pending_orders') or []]
     coin = inst.split('-')[0]
     if coin in reserved or any(i.split('-')[0] == coin for i in existing):

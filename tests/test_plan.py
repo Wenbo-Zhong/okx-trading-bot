@@ -325,6 +325,20 @@ def t_recovery_does_not_resurrect_emergency_closed_position():
     assert len([1 for k, _ in x.posts if k == 'order']) == orders
 
 
+
+def t_spot_dust_does_not_count_as_position():
+    plan, snapshot, state, path = fixture(opening(instId='BTC-USDT-SWAP', market='swap', size={'risk_usdt': 10}))
+    snapshot['account']['positions'] = [
+        {'instId': c + '-USDT', 'market': 'spot', 'side': 'long', 'size': 1e-6, 'last': 1.0} for c in ('ZRO', 'ONDO', 'APT', 'FIL')]
+    order, _ = P.validate_action(plan['actions'][0], snapshot, state)
+    assert order['instId'] == 'BTC-USDT-SWAP'
+    snapshot['account']['positions'] = [
+        {'instId': c + '-USDT', 'market': 'spot', 'side': 'long', 'size': 100, 'last': 10.0} for c in ('ZRO', 'ONDO', 'APT')]
+    try:
+        P.validate_action(plan['actions'][0], snapshot, state); raise AssertionError('expected MAX_POSITIONS')
+    except ValueError as e:
+        assert 'MAX_POSITIONS' in str(e)
+
 if __name__ == '__main__':
     for name, func in list(globals().items()):
         if name.startswith('t_'):

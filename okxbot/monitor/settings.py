@@ -35,6 +35,9 @@ DEFAULTS = {
     "rearm_body_atr": 0.8,           # anomaly re-arms once a bar drops below these
     "rearm_rel_volume": 1.5,
     "breakout_rearm_atr": 0.5,       # breakout re-arms after close returns inside channel by this much ATR
+    # 15m trend_change must clear both to be wake-worthy; weaker flips are logged as priority=low
+    "trend_change_15m_min_rel_vol": 1.0,
+    "trend_change_15m_min_body_atr": 0.5,
     # --- position vs plan ---
     "stop_proximity_atr": 0.3,       # price within k*ATR(1H) of stop -> deviation
     "stop_proximity_rearm_atr": 0.8,
@@ -49,6 +52,9 @@ DEFAULTS = {
     "wake_min_interval_s": 3600,
     "wake_max_per_day": 8,
     "fault_cooldown_s": 900,
+    # same kind+inst+bar cannot wake again within this window unless direction flips with high rel_vol
+    "kind_cooldown_s": 7200,
+    "kind_cooldown_flip_rel_vol": 1.5,
     # --- transport / rate limits ---
     # port 443 (8443 is unreachable from the box)
     "ws_public": "wss://ws.okx.com/ws/v5/public",

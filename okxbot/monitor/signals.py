@@ -92,25 +92,36 @@ def evaluate(inst, bar, bars, group, cfg, latch, now=None):
                and (m["body_atr"] >= cfg["anomaly_body_atr"] or m["hv_z"] >= cfg["anomaly_hv_z"]))
     calm = m["rel_vol"] < cfg["rearm_rel_volume"] and m["body_atr"] < cfg["rearm_body_atr"]
     if latch.check(k + ":anomaly", anomaly, calm):
-        ev.append(("price_volume_anomaly", m))
+        direction = 1 if m["ret_pct"] >= 0 else -1
+        ev.append(("price_volume_anomaly", m, "normal", direction))
     if group == "alt":
-        return [_e(inst, bar, t, x) for t, x in ev]   # alts: joint price+volume anomaly only
+        return [_e(inst, bar, t, x, priority=pri, direction=d) for t, x, pri, d in ev]  # alts: anomaly only
     if m["trend"] != m["prev_trend"]:
         # trend flips are edge events already; latch per direction so a whipsaw needs a fresh flip
         if latch.check(f"{k}:trend:{m['trend']}", True, False):
             latch.fired[f"{k}:trend:{-m['trend']}"] = False
-            ev.append(("trend_change", m))
+            # 15m flips need enough volume + body to wake; otherwise log as low priority
+            pri = "normal"
+            if bar == "15m":
+                if (m["rel_vol"] < cfg.get("trend_change_15m_min_rel_vol", 1.0)
+                        or m["body_atr"] < cfg.get("trend_change_15m_min_body_atr", 0.5)):
+                    pri = "low"
+            ev.append(("trend_change", m, pri, m["trend"]))
     ra = cfg["breakout_rearm_atr"] * m["atr"]
     if latch.check(k + ":bo_up", m["close"] > m["hi"], m["close"] < m["hi"] - ra):
-        ev.append(("breakout_up", m))
+        ev.append(("breakout_up", m, "normal", 1))
     if latch.check(k + ":bo_dn", m["close"] < m["lo"], m["close"] > m["lo"] + ra):
-        ev.append(("breakout_down", m))
-    return [_e(inst, bar, t, x) for t, x in ev]
+        ev.append(("breakout_down", m, "normal", -1))
+    return [_e(inst, bar, t, x, priority=pri, direction=d) for t, x, pri, d in ev]
 
 
-def _e(inst, bar, kind, m):
-    return {"kind": kind, "category": "bar", "inst": inst, "bar": bar,
-            "detail": {k: (round(v, 6) if isinstance(v, float) else v) for k, v in m.items()}}
+def _e(inst, bar, kind, m, priority="normal", direction=None):
+    rec = {"kind": kind, "category": "bar", "inst": inst, "bar": bar,
+           "priority": priority,
+           "detail": {k: (round(v, 6) if isinstance(v, float) else v) for k, v in m.items()}}
+    if direction is not None:
+        rec["direction"] = direction
+    return rec
 
 
 def position_checks(inst, pos, price, atr1h, cfg, latch, breach_since, now_s):

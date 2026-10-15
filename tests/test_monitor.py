@@ -122,6 +122,113 @@ def test_wake_caps():
     del os.environ["OKX_WAKE_WEBHOOK_URL"]
 
 
+
+def trend_flip_bars(vol_last=10, body_extra=0.0):
+    """Uptrend then downtrend that crosses EMA on the last bar; optional fat last candle."""
+    out, c = [], 100.0
+    for i in range(80):
+        c += 0.2
+        out.append({"ts": i, "o": c - 0.05, "h": c + 0.15, "l": c - 0.15, "c": c, "v": 10})
+    for i in range(80, 101):
+        c -= 0.35
+        o, h, l, cl, v = c + 0.05, c + 0.15, c - 0.2, c, 10
+        if i == 100:
+            v = vol_last
+            if body_extra:
+                o = cl + body_extra
+                h, l = max(h, o), min(l, cl)
+        out.append({"ts": i, "o": o, "h": h, "l": l, "c": cl, "v": v})
+    return out
+
+
+def test_15m_trend_change_priority():
+    """Weak 15m flips are priority=low (log only); strong ones and any 1H flip stay normal."""
+    weak = trend_flip_bars(vol_last=10, body_extra=0.0)
+    strong = trend_flip_bars(vol_last=40, body_extra=1.0)
+    latch = signals.Armed()
+    ev = signals.evaluate("OKB-USDT-SWAP", "15m", weak, "major", CFG, latch)
+    tc = [e for e in ev if e["kind"] == "trend_change"]
+    assert tc and tc[0]["priority"] == "low" and tc[0]["direction"] == -1
+    assert tc[0]["detail"]["rel_vol"] < CFG["trend_change_15m_min_rel_vol"] or \
+           tc[0]["detail"]["body_atr"] < CFG["trend_change_15m_min_body_atr"]
+    latch = signals.Armed()
+    ev = signals.evaluate("OKB-USDT-SWAP", "15m", strong, "major", CFG, latch)
+    tc = [e for e in ev if e["kind"] == "trend_change"]
+    assert tc and tc[0]["priority"] == "normal"
+    assert tc[0]["detail"]["rel_vol"] >= CFG["trend_change_15m_min_rel_vol"]
+    assert tc[0]["detail"]["body_atr"] >= CFG["trend_change_15m_min_body_atr"]
+    # 1H is never downgraded by the 15m filter
+    latch = signals.Armed()
+    ev = signals.evaluate("OKB-USDT-SWAP", "1H", weak, "major", CFG, latch)
+    tc = [e for e in ev if e["kind"] == "trend_change"]
+    assert tc and tc[0]["priority"] == "normal"
+
+
+def test_kind_cooldown_and_low_priority_no_wake():
+    """Same kind+inst+bar cannot wake within kind_cooldown_s unless direction flips with high rel_vol.
+    priority=low events are logged but never enter the pending wake batch."""
+    now = [dt.datetime(2026, 10, 15, 2, 0, tzinfo=UTC).timestamp()]
+    d = tempfile.mkdtemp()
+    w = Waker(CFG, enabled=False, clock=lambda: now[0],
+              log_path=os.path.join(d, "l"), state_path=os.path.join(d, "s"))
+    # low-priority: logged, not pending
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "low",
+                  "direction": -1, "bar_ts": 1, "detail": {"rel_vol": 0.25, "body_atr": 0.27, "trend": -1}}) is False
+    assert w.pending == []
+    # first normal wake of this kind
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": -1, "bar_ts": 2, "detail": {"rel_vol": 2.0, "body_atr": 1.2, "trend": -1}})
+    now[0] += CFG["coalesce_s"]
+    assert w.tick() and w.st["kind_last"]["trend_change:OKB-USDT-SWAP:15m"]["direction"] == -1
+    # same direction within 2h -> suppressed
+    now[0] += 60
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": -1, "bar_ts": 3, "detail": {"rel_vol": 2.0, "body_atr": 1.0, "trend": -1}}) is False
+    assert w.pending == []
+    # opposite direction but weak rel_vol -> still suppressed
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": 1, "bar_ts": 4, "detail": {"rel_vol": 1.0, "body_atr": 1.0, "trend": 1}}) is False
+    # opposite direction with rel_vol >= flip threshold -> allowed
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": 1, "bar_ts": 5, "detail": {"rel_vol": CFG["kind_cooldown_flip_rel_vol"],
+                                                          "body_atr": 1.0, "trend": 1}})
+    # different instrument is independent
+    assert w.add({"kind": "trend_change", "inst": "BTC-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": -1, "bar_ts": 6, "detail": {"rel_vol": 2.0, "trend": -1}})
+    # flush pending (respect global wake_min_interval + coalesce)
+    now[0] = max(now[0] + CFG["coalesce_s"], w.st["last_wake"] + CFG["wake_min_interval_s"] + CFG["coalesce_s"])
+    assert w.tick()
+    assert w.st["kind_last"]["trend_change:OKB-USDT-SWAP:15m"]["direction"] == 1
+    # still inside kind cooldown -> suppressed
+    now[0] += 60
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": 1, "bar_ts": 7, "detail": {"rel_vol": 1.2, "trend": 1}}) is False
+    # after kind cooldown elapses, same direction allowed again
+    now[0] += CFG["kind_cooldown_s"]
+    assert w.add({"kind": "trend_change", "inst": "OKB-USDT-SWAP", "bar": "15m", "priority": "normal",
+                  "direction": 1, "bar_ts": 8, "detail": {"rel_vol": 1.2, "trend": 1}})
+
+
+def test_settings_override_from_config_json():
+    """data/monitor_config.json overrides DEFAULTS for the new thresholds."""
+    import json
+    from okxbot.monitor import settings as ms
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "monitor_config.json")
+    with open(path, "w") as f:
+        json.dump({"trend_change_15m_min_rel_vol": 2.5, "kind_cooldown_s": 1800}, f)
+    old = ms.PATH
+    try:
+        ms.PATH = path
+        cfg = ms.load()
+        assert cfg["trend_change_15m_min_rel_vol"] == 2.5
+        assert cfg["kind_cooldown_s"] == 1800
+        assert cfg["kind_cooldown_flip_rel_vol"] == ms.DEFAULTS["kind_cooldown_flip_rel_vol"]
+        assert cfg["majors"] == ms.DEFAULTS["majors"]
+    finally:
+        ms.PATH = old
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

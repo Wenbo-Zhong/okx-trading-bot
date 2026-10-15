@@ -9,7 +9,15 @@ DATA_DIR = os.environ.get("OKXBOT_DATA_DIR") or os.path.join(ROOT_DIR, "data")
 TIMEZONE = "Asia/Shanghai"      # day boundary for the daily loss limit
 
 # ---- Guardrails (hard limits) ----
-MAX_LEVERAGE = 5                 # never exceed 5x
+MAX_LEVERAGE = 5                 # never exceed 5x (all plans except signal='mm_glitch')
+# mm_glitch (market-maker malfunction regime) plans only; see okxbot/plan.py validate_mm_glitch
+MM_GLITCH_MAX_LEVERAGE = 20
+MM_GLITCH_INSTS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+MM_GLITCH_STOP_LIQ_FRAC = 0.6    # stop distance <= 60% of estimated liquidation distance
+MM_GLITCH_MMR = 0.005            # maintenance margin rate assumed for the liq-distance estimate
+MM_GLITCH_FEE = 0.001            # round-trip taker fees deducted from the liq distance
+MM_GLITCH_MAX_HOLD_MIN = 15      # maintenance closes mm_glitch positions older than this
+MM_GLITCH_REGIME_MAX_AGE_S = 1800  # plan must reference a regime confirmed within this window
 MAX_MARGIN_PCT = 0.20            # max 20% of equity as margin per position
 MAX_POSITIONS = 3                # max concurrent positions
 DAILY_LOSS_LIMIT = 0.10          # -10% vs day-start equity -> no new trades today, flatten

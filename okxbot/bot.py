@@ -1085,6 +1085,7 @@ class Bot:
         no sleeves, no trend exits, no trailing, no news sentiment."""
         self.mode_detail = "maintain"
         self.block_longs = True
+        self.enforce_max_hold()
         self.spot = None
         if not self.swaps_blocked:
             spot = SpotManager(self)
@@ -1099,6 +1100,16 @@ class Bot:
             self.spot = spot
         self.ev("maintenance only (planner mode): no automatic entries/exits/stop moves")
         return self.finish(equity, len(positions))
+
+    def enforce_max_hold(self, now_ms=None):
+        """Close planner positions past their max_hold_until (mm_glitch: 15 min). Safety exit only."""
+        now_ms = now_ms or int(time.time() * 1000)
+        for inst, rec in list((self.st.get("positions") or {}).items()):
+            until = rec.get("max_hold_until")
+            if until and now_ms >= until and not rec.get("max_hold_close_sent"):
+                self.close(inst, self.pos_side(rec.get("side", 1)), f"max hold exceeded ({rec.get('signal') or 'planner'})")
+                rec["max_hold_close_sent"] = now_ms
+                save_state(self.st)
 
     def finish(self, equity=None, n_pos=0):
         save_state(self.st)

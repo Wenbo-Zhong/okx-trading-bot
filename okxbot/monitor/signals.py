@@ -150,6 +150,11 @@ def position_checks(inst, pos, price, atr1h, cfg, latch, breach_since, now_s):
         if latch.check(inst + ":adverse", r <= -cfg["adverse_r"], r > -cfg["adverse_rearm_r"]):
             out.append({"kind": "adverse_move", "category": "position", "inst": inst,
                         "detail": {"price": price, "entry": entry, "r": round(r, 2)}})
+    until = pos.get("max_hold_until")
+    if until and now_s * 1000 >= until and latch.check(inst + ":max_hold", True, False):
+        out.append({"kind": "max_hold_exceeded", "category": "fault", "severe": True, "inst": inst,
+                    "detail": {"signal": pos.get("signal"), "max_hold_until": until,
+                               "instruction": "flatten now (python3 -m scripts.maintain also closes it)"}})
     tp = pos.get("tp")
     if tp:
         hit = (price >= tp) if side > 0 else (price <= tp)

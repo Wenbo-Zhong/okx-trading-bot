@@ -53,6 +53,12 @@ class Waker:
             # low-priority bar events are logged only (e.g. weak 15m trend_change)
             if event.get("priority") == "low" and not event.get("severe"):
                 return False
+            # mm_glitch regime events bypass kind cooldown (their own caps live in mmglitch.py)
+            if event.get("regime_wake"):
+                self.pending.append(event)
+                if self.first_ts is None:
+                    self.first_ts = self.clock()
+                return True
             # per-instrument/per-kind re-arm cooldown
             ck = self._kind_key(event)
             kind_last = self.st.setdefault("kind_last", {})
@@ -83,12 +89,15 @@ class Waker:
                 return None
             now = self.clock()
             severe = any(e.get("severe") for e in self.pending)
-            if not severe and now - self.first_ts < self.cfg["coalesce_s"]:
+            regime = any(e.get("regime_wake") for e in self.pending)
+            if not severe and not regime and now - self.first_ts < self.cfg["coalesce_s"]:
                 return None
             day = dt.datetime.fromtimestamp(now, SH).strftime("%Y-%m-%d")
             if self.st["day"] != day:
                 self.st.update(day=day, count=0)
-            if severe:
+            if regime:
+                pass   # regime wakes: no hourly/daily caps, not counted against them (capped per regime)
+            elif severe:
                 if now - self.st["last_fault"] < self.cfg["fault_cooldown_s"]:
                     return None
             else:
@@ -97,9 +106,12 @@ class Waker:
                 if self.st["count"] >= self.cfg["wake_max_per_day"]:
                     return None
             batch, self.pending, self.first_ts = self.pending, [], None
-            self.st["last_wake"] = now
-            self.st["count"] += 1
-            if severe:
+            if regime:
+                self.st["regime_wakes"] = self.st.get("regime_wakes", 0) + 1
+            else:
+                self.st["last_wake"] = now
+                self.st["count"] += 1
+            if severe and not regime:
                 self.st["last_fault"] = now
             kind_last = self.st.setdefault("kind_last", {})
             for e in batch:
@@ -109,7 +121,7 @@ class Waker:
                 for k, _ in sorted(kind_last.items(), key=lambda kv: kv[1].get("ts", 0))[:-200]:
                     del kind_last[k]
             self._save()
-        payload = {"source": "okxbot.monitor", "severe": severe, "count": len(batch),
+        payload = {"source": "okxbot.monitor", "severe": severe, "regime": regime, "count": len(batch),
                    "summary": "; ".join(f"{e['kind']} {e.get('inst', '')} {e.get('bar', '')}".strip() for e in batch)[:1500],
                    "events": batch}
         sent = False
@@ -119,7 +131,7 @@ class Waker:
             except Exception as e:
                 self._log({"type": "wake_error", "error": str(e)[:300]})
         self._log({"type": "wake", "mode": "webhook" if self.enabled else "log-only", "sent": sent,
-                   "summary": payload["summary"], "severe": severe})
+                   "summary": payload["summary"], "severe": severe, "regime": regime})
         return payload
 
     def _save(self):

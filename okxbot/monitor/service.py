@@ -5,6 +5,7 @@ websocket.setdefaulttimeout(30)
 from okxbot import config, news
 from okxbot.okx_client import OKX
 from okxbot.monitor import settings, signals, watchlist
+from okxbot.monitor.mmglitch import MMGlitch
 from okxbot.monitor.wake import Waker
 
 log = logging.getLogger("okxbot.monitor")
@@ -110,16 +111,49 @@ class Monitor:
         self.alerts_pos = os.path.getsize(ALERTS_F) if os.path.exists(ALERTS_F) else 0
         self.feeds = []
         self.started = time.time()
+        self.mm = MMGlitch(self.cfg, depth_of=self.book_depth)
 
     # ----- watchlist -----
     def build_watchlist(self, force=False):
         self.wl = watchlist.build(self.client, read_state(), self.cfg, force=force)
         return self.wl
 
+    def book_depth(self, inst):
+        """Min(bid, ask) USDT depth within mm_depth_band_pct of mid (REST, called only on confirmation)."""
+        with self.rest_lock:
+            ob = self.client._req("GET", "/api/v5/market/books", {"instId": inst, "sz": 400})[0]
+            spec = self.client._req("GET", "/api/v5/public/instruments", {"instType": "SWAP", "instId": inst})[0]
+        ct = float(spec.get("ctVal") or 1)
+        mid = (float(ob["bids"][0][0]) + float(ob["asks"][0][0])) / 2
+        band = self.mm.cfg["mm_depth_band_pct"] / 100
+        side = lambda rows: sum(float(p) * float(q) * ct for p, q, *_ in rows if abs(float(p) / mid - 1) <= band)
+        return min(side(ob["bids"]), side(ob["asks"]))
+
+    def mm_backfill(self):
+        """Seed the mm_glitch detector with ~100 1m bars + index bars (silent)."""
+        for inst in self.mm.cfg["mm_insts"]:
+            ix = MMGlitch.index_of(inst)
+            with self.rest_lock:
+                try:
+                    rows = self.client.candles(inst, bar="1m", limit=100)
+                    time.sleep(self.cfg["rest_min_gap_s"])
+                    irows = self.client._req("GET", "/api/v5/market/index-candles", {"instId": ix, "bar": "1m", "limit": 100})
+                    time.sleep(self.cfg["rest_min_gap_s"])
+                except Exception as e:
+                    log.warning("mm backfill %s: %s", inst, e)
+                    continue
+            with self.lock:
+                for r in irows:
+                    if len(r) < 6 or r[5] == "1":
+                        self.mm.add_index(ix, self._bar(r[:5] + ["0"]))
+                self.mm.seed(inst, [self._bar(r) for r in reversed(rows) if len(r) < 9 or r[8] == "1"])
+        log.info("mm_glitch backfill done")
+
     # ----- REST backfill -----
     def backfill(self, feed, reconnect):
+        threading.Thread(target=self.mm_backfill, daemon=True).start()
         for arg in feed.args:
-            if not arg["channel"].startswith("candle"):
+            if not arg["channel"].startswith("candle") or arg["channel"] == "candle1m":
                 continue
             inst, bar = arg["instId"], arg["channel"][6:]
             with self.rest_lock:
@@ -172,6 +206,22 @@ class Monitor:
         if not data:
             return
         ch = arg.get("channel", "")
+        if ch == "index-candle1m":
+            with self.lock:
+                for r in data:
+                    if r[5] == "1":
+                        self.mm.add_index(arg["instId"], self._bar(r[:5] + ["0"]))
+            return
+        if ch == "candle1m":
+            with self.lock:
+                for r in data:
+                    if r[8] != "1":
+                        continue
+                    for e in self.mm.on_bar(arg["instId"], self._bar(r), time.time()):
+                        e["bar_close_time"] = dt.datetime.fromtimestamp(e["bar_ts"] / 1000, dt.timezone.utc).isoformat()
+                        e["dedupe"] = f"{e['kind']}:{e['inst']}:{e['bar_ts']}"
+                        self.waker.add(e)
+            return
         if ch == "tickers":
             for d in data:
                 self.last_px[d["instId"]] = float(d.get("last") or 0)
@@ -260,6 +310,9 @@ class Monitor:
                 cand.append({"channel": "candle" + b, "instId": inst})
             if e.get("held"):
                 tick.append({"channel": "tickers", "instId": inst})
+        for inst in self.mm.cfg["mm_insts"]:
+            cand.append({"channel": "candle1m", "instId": inst})
+            cand.append({"channel": "index-candle1m", "instId": MMGlitch.index_of(inst)})
         st = read_state()
         for inst in st.get("positions", {}):
             if {"channel": "tickers", "instId": inst} not in tick:
@@ -288,7 +341,7 @@ class Monitor:
                   "wakes_enabled": self.waker.enabled, "rotation": self.wl["rotation"],
                   "instruments": len(self.wl["instruments"]), "series_loaded": len(self.done),
                   "feeds": {f.name: {"alive": f.is_alive(), "connects": f.connects, "args": len(f.args)} for f in self.feeds},
-                  "pending_events": len(self.waker.pending), "wake_state": self.waker.st}
+                  "pending_events": len(self.waker.pending), "mm_glitch_regimes": self.mm.active(), "wake_state": self.waker.st}
         tmp = STATUS_F + ".tmp"
         with open(tmp, "w") as f:
             json.dump(st, f, indent=1)

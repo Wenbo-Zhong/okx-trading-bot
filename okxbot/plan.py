@@ -185,6 +185,58 @@ def position(state, inst):
             state.get('spot', {}).get('longs', {}).get(inst))
 
 
+def mm_liq_distance(lev):
+    return 1.0 / lev - config.MM_GLITCH_MMR - config.MM_GLITCH_FEE
+
+
+def validate_mm_glitch(a, inst, market, lev, stop_frac, now_s=None):
+    """Extra guardrails for plans tagged signal='mm_glitch' (detector is observation-only; the
+    planner must write the plan by hand and reference a live confirmed regime)."""
+    if market != 'swap' or inst not in config.MM_GLITCH_INSTS:
+        raise ValueError('mm_glitch: only BTC/ETH/SOL USDT swaps')
+    if config.TD_MODE != 'isolated':
+        raise ValueError('mm_glitch: isolated margin required')
+    if a.get('order_type', 'market') != 'market' and a.get('order_type') != 'limit':
+        raise ValueError('mm_glitch: invalid order type')
+    if a.get('stop') is None:
+        raise ValueError('mm_glitch: exchange-side stop required')
+    liq = mm_liq_distance(lev)
+    if liq <= 0 or stop_frac > config.MM_GLITCH_STOP_LIQ_FRAC * liq + 1e-12:
+        raise ValueError(f'mm_glitch: stop distance {stop_frac:.4f} exceeds {config.MM_GLITCH_STOP_LIQ_FRAC:g} x liq distance {liq:.4f}')
+    rid = required_text(a.get('regime_id'), 'regime_id')
+    try:
+        st = json.loads(Path(config.DATA_DIR, 'mm_glitch_state.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise ValueError('mm_glitch: no detector state')
+    reg = (st.get('regimes') or {}).get(inst)
+    now_s = now_s if now_s is not None else time.time()
+    if not reg or reg.get('id') != rid or now_s - float(reg.get('start_s') or 0) > config.MM_GLITCH_REGIME_MAX_AGE_S:
+        raise ValueError('mm_glitch: regime not active for this instrument')
+    if reg.get('book_ok') is not True:
+        raise ValueError('mm_glitch: book depth check failed')
+    if rid in mm_used_regimes():
+        raise ValueError('mm_glitch: one entry per regime (already used)')
+
+
+MM_USED_F = 'mm_glitch_used.json'
+
+
+def mm_used_regimes():
+    try:
+        return set(json.loads(Path(config.DATA_DIR, MM_USED_F).read_text(encoding='utf-8')))
+    except FileNotFoundError:
+        return set()
+    # a corrupted ledger raises -> fails closed
+
+
+def mm_mark_regime_used(rid):
+    used = sorted(mm_used_regimes() | {rid})[-200:]
+    path = Path(config.DATA_DIR, MM_USED_F)
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(used), encoding='utf-8')
+    os.replace(tmp, path)
+
+
 def validate_action(a, snapshot, state, reserved=None):
     """Return an order proposal and notes; errors raise ValueError. Pure/read-only."""
     reserved = reserved or set()
@@ -290,7 +342,11 @@ def validate_action(a, snapshot, state, reserved=None):
     if len({i.split('-')[0] for i in existing} | reserved) >= config.MAX_POSITIONS:
         raise ValueError('MAX_POSITIONS reached')
     lev = a.get('leverage', 1)
-    if type(lev) is not int or not 1 <= lev <= config.MAX_LEVERAGE or (market == 'spot' and lev != 1):
+    mm = a.get('signal') == 'mm_glitch'
+    if 'signal' in a and a['signal'] not in (None, 'mm_glitch'):
+        raise ValueError('unknown signal tag')
+    lev_cap = config.MM_GLITCH_MAX_LEVERAGE if mm else config.MAX_LEVERAGE
+    if type(lev) is not int or not 1 <= lev <= lev_cap or (market == 'spot' and lev != 1):
         raise ValueError('leverage exceeds allowed cap')
     max_lever = spec.get('maxLever') or spec.get('lever')
     if max_lever and lev > float(max_lever):
@@ -310,6 +366,8 @@ def validate_action(a, snapshot, state, reserved=None):
         tp = float(fmt_px(positive(tp), tick))
         if (tp - px) * side <= 0 or (tp - entry) * side <= 0:
             raise ValueError('take_profit must be on profit side')
+    if mm:
+        validate_mm_glitch(a, inst, market, lev, distance / entry)
     size = a.get('size')
     if not isinstance(size, dict) or len(size) != 1 or next(iter(size)) not in ('risk_usdt', 'notional_usdt', 'contracts'):
         raise ValueError('size requires exactly one of risk_usdt/notional_usdt/contracts')
@@ -498,6 +556,9 @@ def finish_open(b, pending):
                      'qty' if spot else 'contracts': qty, 'lev': a.get('leverage', 1),
                      'ordId': pending['ordId'], 'trade_id': pending['ordId'], 'spec': spec,
                      'entry_ts': int(time.time() * 1000), 'intent': 'planner',
+                     **({'signal': 'mm_glitch', 'regime_id': a.get('regime_id'),
+                         'max_hold_until': int(time.time() * 1000) + config.MM_GLITCH_MAX_HOLD_MIN * 60000}
+                        if a.get('signal') == 'mm_glitch' else {}),
                      'planned_risk_usdt': abs(px - stop) * qty * units}
     b.instr[inst] = b.spot.inst[inst] = spec
     b.spot.last[inst] = px
@@ -562,6 +623,8 @@ def execute_action(b, a, order, plan_id):
                 raise ValueError('size below minimum at requested leverage')
             body['sz'] = str(qty)
         order.update(body)
+        if a.get('signal') == 'mm_glitch':
+            mm_mark_regime_used(a['regime_id'])   # write-ahead: the regime is spent even if the order fails
         pending = {'body': body, 'action': a, 'spec': b.instr[inst], 'plan_id': plan_id}
         b.st.setdefault('plan_pending', {})[body['clOrdId']] = pending
         save_state(b.st)  # write-ahead intent, including for swap and limit orders
@@ -675,6 +738,8 @@ def run_plan(plan, execute=False, snapshot_path=None, client=None, now=None, loc
                 row = {'index': index, 'action': a.get('action') if isinstance(a, dict) and isinstance(a.get('action'), str) else None,
                        'instId': a.get('instId') if isinstance(a, dict) and isinstance(a.get('instId'), str) else None,
                        'status': 'rejected', 'reasons': [], 'order': None, 'result': None}
+                if isinstance(a, dict) and a.get('signal'):
+                    row.update(signal=a.get('signal'), regime_id=a.get('regime_id'))
                 result['actions'].append(row)
                 if errors:
                     row['reasons'] = ['plan-level validation failed']

@@ -151,3 +151,15 @@ AUTO_TREND_EXITS = False    # close positions when the 4h trend flips
 AUTO_TRAIL = False          # chandelier trailing stops
 AUTO_LIQ_NUDGE = False      # liquidation-cluster stop nudges on open positions
 AUTO_SLEEVES = False        # BTC/ETH/OKB spot allocation sleeves
+
+# ---- mm_glitch range trading (scripts/range_trade.py). DEMO only; dry-run unless enabled here AND --execute ----
+RANGE_TRADE_ENABLED = False      # Wenbo flips this to True to allow --execute
+RANGE_ENTRY_ZONE = 0.175         # enter within 17.5% of band width from an edge
+RANGE_TP_BUFFER = 0.10           # TP sits 10% of band width inside the opposite edge
+RANGE_STOP_BUFFER = 0.10         # exchange stop sits 10% of band width outside the edge (= band break)
+RANGE_PROFIT_MARGIN_FRAC = 1 / 3 # later entries: MARGIN = 1/3 of cumulative realized regime profit
+RANGE_MAX_STRATEGY_S = 1800      # whole strategy capped at 30 min
+RANGE_MAX_TRADE_S = 600          # single trade capped at 10 min
+RANGE_COST_FRAC = 0.002         # fees (2x0.05%) + slippage (2x5bp) counted inside the 0.5% risk budget
+RANGE_MIN_BAND_BP = 40           # band narrower than this is rejected (fees+slippage would dominate)
+MM_GLITCH_MONITOR_ENFORCE = True # monitor closes mm_glitch/range positions past max_hold_until (needs DEMO keys)

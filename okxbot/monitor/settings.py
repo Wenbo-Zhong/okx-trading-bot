@@ -63,7 +63,7 @@ DEFAULTS = {
     "ws_sub_ops_per_hour": 480,
     "ws_args_per_op": 100,
     "rest_min_gap_s": 0.12,
-    "state_poll_s": 30,
+    "state_poll_s": 10,      # also the max-hold enforcement granularity
 }
 
 PATH = os.path.join(config.DATA_DIR, "monitor_config.json")

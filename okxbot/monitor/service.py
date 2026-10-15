@@ -253,12 +253,32 @@ class Monitor:
                 a = signals.atr(s[-60:], self.cfg["atr_n"]) if len(s) > 20 else None
             for e in signals.position_checks(inst, pos, px, a, self.cfg, self.latch, self.breach, time.time()):
                 e["dedupe"] = f"{e['kind']}:{inst}:{int(time.time() // 60)}"
+                if e["kind"] == "max_hold_exceeded":
+                    e["detail"]["enforced"] = self.enforce_max_hold(inst, pos)
                 self.waker.add(e)
         held = set(watchlist.held_instruments(st))
         missing = held - set(self.wl["instruments"])
         if missing:
             log.info("new held instruments %s -> resubscribe", missing)
             self.restart_feeds()
+
+    def enforce_max_hold(self, inst, pos):
+        """Close an mm_glitch/range position past max_hold_until (DEMO keys required). Returns outcome."""
+        if not (config.DEMO and getattr(config, "MM_GLITCH_MONITOR_ENFORCE", False)):
+            return "disabled"
+        if pos.get("signal") != "mm_glitch":
+            return "not mm_glitch"
+        if not self.client.has_keys:
+            return "no keys (log-only)"
+        try:
+            self.client.close_position(inst, None)
+            algos = self.client.pending_algos(inst)
+            if algos:
+                self.client.cancel_algos([{"algoId": x["algoId"], "instId": inst} for x in algos])
+            return "closed"
+        except Exception as e:
+            log.exception("max-hold close %s", inst)
+            return f"error: {e}"[:200]
 
     def check_alert_faults(self):
         if not os.path.exists(ALERTS_F):

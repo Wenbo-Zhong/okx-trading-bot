@@ -70,6 +70,30 @@ def t_legacy_single_close_remains_supported():
     assert row["status"] == "closed" and row["realized_pnl_usdt"] == 177
     assert row["exit"] == 13
 
+def t_planner_stop_amend_uses_value_and_infers_old_from_init_stop():
+    """Planner amend_sl events carry only 'value' (not 'new'/'old'); journal must normalize."""
+    open_ev = dict(OPEN, market="swap", instId="ETH-USDT-SWAP", entry=2400, init_stop=2450,
+                   size=1, planned_risk_usdt=50)
+    stop_ev = {"ev": "stop", "time_ms": 1500, "trade_id": "entry", "instId": "ETH-USDT-SWAP",
+               "value": 2420, "reason": "tighten"}
+    row, report = build([open_ev, stop_ev], remaining=1)
+    assert row["final_stop"] == 2420
+    assert "2450→2420" in row["stop_adjustments"]
+    assert "planner" in row["stop_adjustments"]
+    assert "加密永续" in report  # MKT_ZH alias for bare "swap"
+
+
+def t_planner_stop_chain_infers_old_from_previous_new():
+    open_ev = dict(OPEN, market="crypto swap", instId="ETH-USDT-SWAP", entry=2400, init_stop=2450,
+                   size=1, planned_risk_usdt=50)
+    s1 = {"ev": "stop", "time_ms": 1500, "trade_id": "entry", "instId": "ETH-USDT-SWAP",
+          "value": 2420, "reason": "tighten"}
+    s2 = {"ev": "stop", "time_ms": 1600, "trade_id": "entry", "instId": "ETH-USDT-SWAP",
+          "value": 2410, "reason": "tighten_again"}
+    row, _ = build([open_ev, s1, s2], remaining=1)
+    assert row["final_stop"] == 2410
+    assert "2450→2420" in row["stop_adjustments"]
+    assert "2420→2410" in row["stop_adjustments"]
 
 if __name__ == "__main__":
     with patch("requests.sessions.Session.request", side_effect=AssertionError("network forbidden")):

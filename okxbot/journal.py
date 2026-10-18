@@ -22,7 +22,7 @@ EXIT_ZH = {"stop": "止损", "tp": "止盈", "trend_flip": "趋势反转", "trai
            "guardrail": "风控", "liquidation": "强平", "unknown": "未知", "open": "持仓中", "allocation": "仓位配置",
            "funding_flip": "资金费转正离场"}
 INTENT_ZH = {"funding_harvest": "吃资金费率", "trend": "趋势突破", "spot_too_thin": "趋势突破(现货盘口太薄改永续)"}
-MKT_ZH = {"crypto swap": "加密永续", "tradfi swap": "美股/商品永续", "spot": "现货", "spot allocation": "现货配置"}
+MKT_ZH = {"crypto swap": "加密永续", "tradfi swap": "美股/商品永续", "spot": "现货", "spot allocation": "现货配置", "swap": "加密永续"}
 
 
 def bj(ms):
@@ -201,7 +201,11 @@ def build():
         tid, inst = o["trade_id"], o["instId"]
         later_open = min([e["time_ms"] for e in opens if e["instId"] == inst and e["time_ms"] > o["time_ms"]] or [9e15])
         mine = lambda e: e.get("trade_id") == tid or (not e.get("trade_id") and e["instId"] == inst and o["time_ms"] <= e["time_ms"] < later_open)
-        stops = sorted([e for e in ev if e["ev"] == "stop" and mine(e)], key=lambda e: e["time_ms"])
+        stops = sorted([dict(e, new=e.get("new", e.get("value")), kind=e.get("kind") or ("planner" if "value" in e else None))
+                        for e in ev if e["ev"] == "stop" and mine(e)], key=lambda e: e["time_ms"])
+        for i, s in enumerate(stops):   # planner amend_sl events carry only "value"; infer the old stop
+            if s.get("old") is None:
+                s["old"] = stops[i - 1]["new"] if i else o.get("init_stop")
         closes = [e for e in ev if e["ev"] == "close" and mine(e)]
         close = aggregate_closes(closes)
         fully_closed = close is not None and f(close.get("remaining"), 0) <= 1e-9

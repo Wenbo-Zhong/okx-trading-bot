@@ -79,6 +79,8 @@ def t_journal_labels():
     from okxbot import journal
     assert journal.INTENT_ZH["funding_harvest"] == "吃资金费率"
     assert journal.classify_exit({"side": "long"}, {"reason": "funding_flip"}, [], []) == "funding_flip"
+    assert journal.MKT_ZH["swap"] == "加密永续"  # plan files may use bare "swap"
+    assert journal.MKT_ZH["crypto swap"] == "加密永续"
 
 if __name__ == "__main__":
     n = 0

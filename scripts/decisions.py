@@ -49,6 +49,12 @@ def view(rows):
                      f"snap={r.get('snapshot_id')} valid={r.get('valid')} counts={oc.get('counts', {})}")
         if r.get("rationale"):
             lines.append("    why: " + str(r["rationale"])[:200])
+        rv = r.get("review") or {}
+        if rv:
+            lines.append("    review: " + ", ".join(f"{k}={rv[k]}" for k in ("category", "horizon_h", "invalidation",
+                                                                          "cost_budget_usdt") if rv.get(k) is not None)[:200])
+        for e in r.get("review_errors") or []:
+            lines.append("    ? review: " + e)
         for a in r.get("actions") or []:
             lines.append(f"    [{a.get('index')}] {a.get('action')} {a.get('instId') or ''} -> {a.get('status')}"
                          + (f" ({'; '.join(a.get('reasons') or [])})" if a.get("reasons") else ""))

@@ -162,4 +162,16 @@ RANGE_MAX_STRATEGY_S = 1800      # whole strategy capped at 30 min
 RANGE_MAX_TRADE_S = 600          # single trade capped at 10 min
 RANGE_COST_FRAC = 0.002         # fees (2x0.05%) + slippage (2x5bp) counted inside the 0.5% risk budget
 RANGE_MIN_BAND_BP = 40           # band narrower than this is rejected (fees+slippage would dominate)
+# Post-fee profitability gate (range_trade.edge, 2026-10-19). A 0.4% band nets ~+0.09% at TP / -0.31% at SL
+# after 0.20% round-trip cost -> needs ~78% wins to break even, so the width floor alone is not enough.
+# Cost per round trip = 2 x actual taker fee + 2 x max(RANGE_SLIP_FRAC, half the executing-book spread,
+# observed avg slippage from executed range fills). Win rate = executed fill history shrunk toward the prior
+# (Beta prior: RANGE_PRIOR_WEIGHT pseudo-trades at RANGE_PRIOR_WIN_RATE). Reject unless EV > RANGE_MIN_NET_EDGE.
+RANGE_SLIP_FRAC = 0.0005         # min slippage per leg (5 bp)
+RANGE_PRIOR_WIN_RATE = 0.5       # no executed history yet -> coin-flip prior (bands need ~0.9%+ width at 0.20% cost)
+RANGE_PRIOR_WEIGHT = 10
+RANGE_MIN_NET_EDGE = 0.0         # expected net edge per trade (fraction of entry) must exceed this
+RANGE_PNL_FETCH_TRIES = 3        # positions-history attempts (1 s apart) to confirm realized PnL after an exit
+RANGE_FLATTEN_RETRY_S = 120      # scripts/range_trade keeps retrying an unconfirmed flatten this long, then
+                                 # leaves the exchange stop + monitor max-hold enforcement as the backstop
 MM_GLITCH_MONITOR_ENFORCE = True # monitor closes mm_glitch/range positions past max_hold_until (needs DEMO keys)

@@ -10,7 +10,13 @@ small state machine. Rules (config.RANGE_*):
     regime profit at the regime leverage, still capped by RISK_PER_TRADE risk and MAX_MARGIN_PCT. If
     that is below the minimum order size (or profit <= 0) the strategy stops.
   * any stop-out, band break, regime end/cap, 30 min strategy cap, 10 min per-trade cap -> cancel all,
-    flatten, stop.
+    flatten, stop. Local position state is cleared only after the exchange confirms the position is flat;
+    the exchange stop is never cancelled while a position may still be open. Caps are enforced even when
+    the price feed is down.
+  * execute mode: cumulative profit (follow-on sizing) comes only from exchange realized PnL
+    (positions-history realizedPnl = fills + fees + funding), never from an estimated exit price.
+  * post-fee gate (edge()): a band is rejected unless its expected net edge per trade, after actual
+    fees, spread/slippage and the fill-history win rate, is positive.
 DEMO only. Dry-run (log-only) unless config.RANGE_TRADE_ENABLED and --execute."""
 import json, math, time, uuid
 from pathlib import Path
@@ -35,7 +41,52 @@ def levels(lower, upper, lev):
     return L
 
 
-def validate(inst, lower, upper, regime_id, lev, now_s=None, state=None):
+def fill_history(path=None):
+    """Executed range trades with exchange-confirmed realized PnL (dry-run / estimates excluded)."""
+    rows = []
+    try:
+        for line in Path(path or JOURNAL()).read_text(encoding='utf-8').splitlines():
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if (r.get('kind') == 'range_trade' and r.get('event') == 'trade_closed' and r.get('mode') == 'execute'
+                    and isinstance(r.get('realized_pnl'), (int, float))):
+                rows.append(r)
+    except OSError:
+        pass
+    return rows
+
+
+def edge(lower, upper, fee_taker=None, spread_frac=None, history=None):
+    """Expected net edge per trade (fraction of entry price) after costs. Returns a dict; 'ok' is True only
+    when the expected net edge is > RANGE_MIN_NET_EDGE.
+      fee_taker  : actual taker fee rate (positive cost); entries can fill aggressively and TP/SL exit as
+                   market orders, so taker is assumed on both legs (conservative). Default config.
+      spread_frac: current (ask-bid)/mid of the executing book; each leg pays max(half-spread, slip floor,
+                   observed avg slippage).
+      history    : executed trade rows (fill_history()); win rate = Beta-shrunk toward RANGE_PRIOR_WIN_RATE."""
+    fee = config.SWAP_TAKER_FEE if fee_taker is None else max(0.0, float(fee_taker))
+    hist = fill_history() if history is None else history
+    slips = [abs(float(h['slip_frac'])) for h in hist if isinstance(h.get('slip_frac'), (int, float))]
+    obs_slip = sum(slips) / len(slips) if slips else 0.0
+    slip = max(config.RANGE_SLIP_FRAC, (spread_frac or 0.0) / 2, obs_slip)
+    cost = 2 * fee + 2 * slip
+    w = upper - lower
+    entry = lower + config.RANGE_ENTRY_ZONE * w
+    g = (1 - config.RANGE_ENTRY_ZONE - config.RANGE_TP_BUFFER) * w / entry      # gross at TP
+    l = (config.RANGE_ENTRY_ZONE + config.RANGE_STOP_BUFFER) * w / entry       # gross loss at SL
+    n, wins, k = len(hist), sum(1 for h in hist if h['realized_pnl'] > 0), config.RANGE_PRIOR_WEIGHT
+    p = (wins + config.RANGE_PRIOR_WIN_RATE * k) / (n + k)
+    net_win, net_loss = g - cost, l + cost
+    ev = p * net_win - (1 - p) * net_loss
+    be = net_loss / (net_win + net_loss) if net_win > 0 else 1.0
+    return {'ok': net_win > 0 and ev > config.RANGE_MIN_NET_EDGE, 'ev_frac': ev, 'win_rate': p, 'breakeven_win_rate': be,
+            'net_win_frac': net_win, 'net_loss_frac': net_loss, 'cost_frac': cost, 'fee_taker': fee, 'slip_frac': slip,
+            'history_trades': n}
+
+
+def validate(inst, lower, upper, regime_id, lev, now_s=None, state=None, costs=None):
     """Raise ValueError unless band + regime satisfy every mm_glitch rule."""
     from okxbot.plan import mm_liq_distance, mm_used_regimes
     if inst not in config.MM_GLITCH_INSTS:
@@ -50,6 +101,11 @@ def validate(inst, lower, upper, regime_id, lev, now_s=None, state=None):
     if (upper - lower) / mid * 1e4 < config.RANGE_MIN_BAND_BP:
         raise ValueError('band narrower than RANGE_MIN_BAND_BP')
     L = levels(lower, upper, lev)
+    E = edge(lower, upper, **(costs or {}))
+    L['edge'] = E
+    if not E['ok']:
+        raise ValueError('post-fee edge not positive: EV %.4f%%/trade at win rate %.0f%% (breakeven %.0f%%, cost %.3f%%)'
+                         % (E['ev_frac'] * 100, E['win_rate'] * 100, E['breakeven_win_rate'] * 100, E['cost_frac'] * 100))
     if L['max_stop_frac'] > config.MM_GLITCH_STOP_LIQ_FRAC * mm_liq_distance(lev) + 1e-12:
         raise ValueError('stop distance exceeds 60% of liquidation distance')
     if state is None:
@@ -173,7 +229,7 @@ class Runner:
     TP + SL. `client` is an OKX client (DEMO); `price()` returns the latest WS price."""
 
     def __init__(self, client, inst, lower, upper, regime_id, lev=20, execute=False, clock=time.time,
-                 price=None, regime_alive=None, spec=None, equity=None):
+                 price=None, regime_alive=None, spec=None, equity=None, sleep=time.sleep):
         self.c, self.inst, self.rid, self.lev = client, inst, regime_id, lev
         self.execute = bool(execute and config.RANGE_TRADE_ENABLED and config.DEMO)
         self.clock, self.price = clock, price
@@ -187,6 +243,9 @@ class Runner:
         self.resting = {}     # side -> {'clOrdId', 'ordId', 'px', 'qty', 'sl', 'tp'}
         self.pos = None       # {'side','entry','qty','sl','tp','ts'}
         self.done = None
+        self.pnl_unconfirmed = False
+        self.stopping = None  # stop requested but flatten not yet confirmed -> retried every step
+        self.sleep = sleep
 
     def log(self, event, **kw):
         journal({'event': event, 'instId': self.inst, 'regime_id': self.rid, 'mode': 'execute' if self.execute else 'dry_run',
@@ -276,6 +335,9 @@ class Runner:
             save_state(st)
 
     def stop(self, reason):
+        """Cancel entries, flatten, stop. In execute mode local state is cleared only once the exchange shows
+        the position flat; on a failed/unconfirmed close the exchange stop is left in place and the stop is
+        retried on the next step()."""
         if self.done:
             return
         self._cancel_resting()
@@ -286,18 +348,31 @@ class Runner:
                 except Exception as e:
                     self.log('flatten_error', error=str(e)[:200])
                 try:
+                    flat = self._exch_flat(None)
+                except Exception as e:
+                    self.log('flatten_check_error', error=str(e)[:200])
+                    flat = False
+                if not flat:
+                    self.stopping = self.stopping or reason
+                    self.log('flatten_unconfirmed', reason=reason, note='exchange stop kept; will retry')
+                    return
+                try:
                     algos = self.c.pending_algos(self.inst)
                     if algos:
                         self.c.cancel_algos([{'algoId': a['algoId'], 'instId': self.inst} for a in algos])
                 except Exception as e:
                     self.log('cancel_algos_error', error=str(e)[:200])
-            px = self.price() if self.price else self.pos['entry']
-            self._book(px, 'flatten: ' + reason)
+                self._book_real('flatten: ' + reason)
+            else:
+                px = self.price() if self.price else None
+                self._book(px if px is not None else self.pos['entry'], 'flatten: ' + reason)
             self._set_hold(False)
+            self.pos = None
         self.done = reason
         self.log('strategy_stop', reason=reason, trades=self.trades)
 
     def _book(self, x, reason):
+        """Dry-run bookkeeping (simulated exit, estimated fees)."""
         p = self.pos
         net = (x - p['entry']) * p['side'] * p['qty'] * self.units - 0.0005 * p['qty'] * self.units * (p['entry'] + x)
         self.cum += net
@@ -305,33 +380,85 @@ class Runner:
         self.log('trade_closed', side='long' if p['side'] == 1 else 'short', entry=p['entry'], exit=x, qty=p['qty'],
                  net_est=round(net, 4), reason=reason)
         self.pos = None
+        return net
+
+    def _realized(self, p):
+        """Exchange realized PnL for the closed position (fills + fees + funding). None if not available."""
+        fn = getattr(self.c, 'positions_history', None)
+        if fn is None:
+            return None
+        for i in range(config.RANGE_PNL_FETCH_TRIES):
+            try:
+                rows = fn(self.inst, 5) or []
+            except Exception as e:
+                self.log('pnl_fetch_error', error=str(e)[:200]); rows = []
+            for h in rows:
+                if int(h.get('cTime') or 0) >= int(p['ts'] * 1000) - 60_000 and h.get('realizedPnl') not in (None, ''):
+                    return {'realized_pnl': float(h['realizedPnl']), 'pnl': float(h.get('pnl') or 0),
+                            'fee': float(h.get('fee') or 0), 'funding': float(h.get('fundingFee') or 0),
+                            'exit': float(h['closeAvgPx']) if h.get('closeAvgPx') else None}
+            if i + 1 < config.RANGE_PNL_FETCH_TRIES:
+                self.sleep(1)
+        return None
+
+    def _book_real(self, reason):
+        """Execute-mode bookkeeping from the exchange only. Returns the realized dict or None (unconfirmed)."""
+        p = self.pos
+        r = self._realized(p)
+        self.trades += 1
+        if reason is None:
+            reason = 'exchange exit' if r is None else ('tp' if r['realized_pnl'] > 0 else 'stop')
+        side = 'long' if p['side'] == 1 else 'short'
+        if r is None:
+            self.pnl_unconfirmed = True
+            self.log('trade_closed', side=side, entry=p['entry'], qty=p['qty'], realized_pnl=None, reason=reason,
+                     note='realized pnl unavailable; not added to sizing profit')
+        else:
+            self.cum += r['realized_pnl']
+            planned = p['tp'] if r['realized_pnl'] > 0 else p['sl']
+            slip = abs(r['exit'] - planned) / planned if r.get('exit') and reason in ('tp', 'stop') else None
+            self.log('trade_closed', side=side, entry=p['entry'], exit=r.get('exit'), qty=p['qty'], reason=reason,
+                     realized_pnl=r['realized_pnl'], pnl=r['pnl'], fee=r['fee'], funding=r['funding'], slip_frac=slip)
+        self.pos = None
+        return r
 
     def step(self):
-        """One iteration; returns False once the strategy has stopped."""
+        """One iteration; returns False once the strategy has stopped. Time caps, regime checks and (execute
+        mode) exchange position checks run even when the price feed is down."""
         if self.done:
             return False
+        if self.stopping:
+            self.stop(self.stopping)
+            return not self.done
         now, px = self.clock(), self.price()
-        if px is None:
-            return True
         if now - self.start >= config.RANGE_MAX_STRATEGY_S:
-            self.stop('strategy 30 min cap'); return False
+            self.stop('strategy 30 min cap'); return not self.done
         if not self.regime_alive():
-            self.stop('regime ended or capped'); return False
-        if self.pos is None and (px <= self.L['long_sl'] or px >= self.L['short_sl']):
-            self.stop('band break'); return False
+            self.stop('regime ended or capped'); return not self.done
         if self.pos is not None:
             p = self.pos
-            if self._exch_flat(px):
-                stopped = (px <= (p['sl'] + p['tp']) / 2) if p['side'] == 1 else (px >= (p['sl'] + p['tp']) / 2)
+            flat = self._exch_flat(px) if (self.execute or px is not None) else False
+            if flat:
                 self._set_hold(False)
+                if self.execute:
+                    r = self._book_real(None)
+                    if r is None:
+                        self.stop('realized pnl unconfirmed'); return False
+                    stopped = r['realized_pnl'] <= 0
+                else:
+                    stopped = (px <= (p['sl'] + p['tp']) / 2) if p['side'] == 1 else (px >= (p['sl'] + p['tp']) / 2)
+                    self._book(p['sl'] if stopped else p['tp'], 'stop' if stopped else 'tp')
                 if stopped:
-                    self._book(p['sl'], 'stop'); self.stop('stop-out'); return False
-                self._book(p['tp'], 'tp')
+                    self.stop('stop-out'); return False
                 self.want = -p['side']
             elif now - p['ts'] >= config.RANGE_MAX_TRADE_S:
-                self.stop('trade 10 min cap'); return False
+                self.stop('trade 10 min cap'); return not self.done
             else:
                 return True
+        if px is None:
+            return True
+        if self.pos is None and (px <= self.L['long_sl'] or px >= self.L['short_sl']):
+            self.stop('band break'); return not self.done
         if self.pos is None:
             for side, o in list(self.resting.items()):
                 f = self._filled(side, o, px)

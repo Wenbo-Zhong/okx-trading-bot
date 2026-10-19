@@ -50,8 +50,14 @@ DEFAULTS = {
     # --- wakes ---
     "coalesce_s": 90,
     "wake_min_interval_s": 3600,
-    "wake_max_per_day": 8,
+    "wake_max_per_day": 8,           # ordinary wakes/day (0 = kill switch: nothing dispatches)
     "fault_cooldown_s": 900,
+    # shared persisted budget for ALL wake types incl. mm_glitch (2026-10-19, Codex review #5)
+    "wake_max_per_week": 30,         # ISO week, Asia/Shanghai; 0 = kill switch
+    "wake_fault_reserve_week": 6,    # part of the weekly cap only fault/halt wakes may use
+    "wake_fault_reserve_day": 2,     # fault/halt wakes may exceed wake_max_per_day by this much
+    "pending_max_age_s": 7200,       # undelivered events older than this are dropped, not sent stale
+    "material_band_frac": 0.25,      # within kind cooldown a band must move >= 25% of its width to re-wake
     # same kind+inst+bar cannot wake again within this window unless direction flips with high rel_vol
     "kind_cooldown_s": 7200,
     "kind_cooldown_flip_rel_vol": 1.5,

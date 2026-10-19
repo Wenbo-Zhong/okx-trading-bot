@@ -308,9 +308,8 @@ class Monitor:
             key = it.get("url") or it["title"]
             if key in self.news_seen:
                 continue
-            words = {w for w in re.findall(r"[a-z]{5,}", it["title"].lower())}
-            confirm = {o["src"] for o in hi if o["src"] != it["src"]
-                       and len(words & set(re.findall(r"[a-z]{5,}", o["title"].lower()))) >= 2}
+            # confirmed only by another outlet reporting the same event type about the same entity
+            confirm = {o["src"] for o in hi if o["src"] != it["src"] and news.same_story(it["title"], o["title"])}
             coins = sorted(b for b in watched if any(n in it["text"].lower()
                            for n in news.NAMES.get(b, [b.lower()]) if len(n) > 2))
             self.news_seen.add(key)

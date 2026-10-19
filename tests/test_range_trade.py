@@ -187,6 +187,108 @@ def t_monitor_enforces_max_hold():
     assert ev and ev[0]['kind'] == 'max_hold_exceeded'     # fires even without a price feed
 
 
+class FlakyClient(FakeClient):
+    """close_position fails (position stays open) until `heal` is set; positions-history gives real PnL."""
+    def __init__(self):
+        super().__init__(); self.heal = False; self.hist = []
+    def close_position(self, inst, ps):
+        self.calls.append(('close', inst))
+        if not self.heal:
+            raise RuntimeError('51000 close failed')
+        self.pos = []
+    def pending_algos(self, inst): self.calls.append(('pending_algos', inst)); return [{'algoId': 'a1'}]
+    def positions_history(self, inst, limit=20): return self.hist
+
+
+def open_exec_runner(c, px, clock=None):
+    r = runner(px, execute=True, client=c, clock=clock)
+    r.step()
+    buy = next(k for k, o in c.orders.items() if o['side'] == 'buy'); c.orders[buy]['state'] = 'filled'
+    c.pos = [{'instId': 'ETH-USDT-SWAP', 'pos': '1'}]
+    px[0] = 101.7; r.step(); assert r.pos
+    return r
+
+
+def t_failed_close_keeps_state_and_stop():
+    """Regression (Codex #1): a failed close must not clear local state nor cancel the exchange stop."""
+    old = config.RANGE_TRADE_ENABLED
+    try:
+        config.RANGE_TRADE_ENABLED = True
+        from okxbot.bot import load_state
+        c = FlakyClient(); px = [105.0]; r = open_exec_runner(c, px)
+        r.stop('test')
+        assert r.pos is not None and r.done is None and r.stopping == 'test'
+        assert not any(x[0] in ('cancel_algos', 'pending_algos') for x in c.calls)      # stop left in place
+        assert 'ETH-USDT-SWAP' in load_state().get('positions', {})                       # hold kept for monitor
+        assert r.step() is True and r.pos is not None                                     # retried, still open
+        c.heal = True
+        c.hist = [{'cTime': str(int(time.time() * 1000)), 'realizedPnl': '-3.5', 'pnl': '-2', 'fee': '-1.2',
+                   'fundingFee': '-0.3', 'closeAvgPx': '101.0'}]
+        assert r.step() is False and r.done == 'test' and r.pos is None
+        assert any(x[0] == 'cancel_algos' for x in c.calls)
+        assert 'ETH-USDT-SWAP' not in load_state().get('positions', {})
+        assert abs(r.cum - (-3.5)) < 1e-9                                                  # real PnL only
+    finally:
+        config.RANGE_TRADE_ENABLED = old
+
+
+def t_caps_enforced_without_price():
+    """Regression (Codex #1): a dead ticker feed must not skip the per-trade / strategy time caps."""
+    px = [105.0]; t = [0.0]; r = runner(px, clock=lambda: t[0]); r.step(); px[0] = 101.7; r.step(); assert r.pos
+    px[0] = None; t[0] += config.RANGE_MAX_TRADE_S
+    assert r.step() is False and r.done == 'trade 10 min cap' and r.pos is None
+    px = [105.0]; t = [0.0]; r = runner(px, clock=lambda: t[0]); r.step()
+    px[0] = None; t[0] += config.RANGE_MAX_STRATEGY_S
+    assert r.step() is False and r.done == 'strategy 30 min cap'
+    r = runner([None], alive=lambda: False); assert r.step() is False and r.done == 'regime ended or capped'
+
+
+def t_sizing_profit_from_real_fills_only():
+    """Regression (Codex #1): execute-mode follow-on sizing uses exchange realized PnL (fills+fees+funding)."""
+    old = config.RANGE_TRADE_ENABLED
+    try:
+        config.RANGE_TRADE_ENABLED = True
+        c = FlakyClient(); c.heal = True; px = [105.0]; r = open_exec_runner(c, px)
+        c.pos = []                                         # exchange TP hit
+        c.hist = [{'cTime': str(int(time.time() * 1000)), 'realizedPnl': '0.42', 'pnl': '0.9', 'fee': '-0.5',
+                   'fundingFee': '0.02', 'closeAvgPx': '108.9'}]
+        px[0] = 109.2; r.step()
+        assert abs(r.cum - 0.42) < 1e-9, r.cum             # not the estimated (109-101.75)*qty
+        rows = [json.loads(l) for l in Path(config.DATA_DIR, 'decision_journal.jsonl').read_text().splitlines()]
+        tc = [x for x in rows if x.get('event') == 'trade_closed'][-1]
+        assert tc['realized_pnl'] == 0.42 and tc['fee'] == -0.5 and tc['funding'] == 0.02 and tc['reason'] == 'tp'
+        # realized PnL unavailable -> strategy stops instead of sizing off an estimate
+        c2 = FlakyClient(); c2.heal = True; px = [105.0]; r2 = open_exec_runner(c2, px); r2.sleep = lambda s: None
+        c2.pos = []; px[0] = 109.2
+        assert r2.step() is False and r2.done == 'realized pnl unconfirmed' and r2.cum == 0
+    finally:
+        config.RANGE_TRADE_ENABLED = old
+
+
+def t_post_fee_edge_gate():
+    """Codex #2: 0.4% band at 0.20% round-trip cost needs ~78% wins -> rejected; wide bands pass."""
+    e = R.edge(100, 100.4, history=[])
+    assert abs(e['net_win_frac'] - 0.0009) < 2e-5 and abs(e['net_loss_frac'] - 0.0031) < 2e-5, e
+    assert 0.77 < e['breakeven_win_rate'] < 0.78 and not e['ok']
+    assert R.edge(2053.62, 2086.28, history=[])['ok']                     # Feb-7 band (~1.6%) passes
+    assert not R.edge(2053.62, 2086.28, fee_taker=0.004, history=[])['ok']  # expensive fees kill it
+    assert not R.edge(2053.62, 2086.28, spread_frac=0.01, history=[])['ok']  # wide book kills it
+    losers = [{'realized_pnl': -1.0, 'slip_frac': 0.0005}] * 40
+    assert not R.edge(2053.62, 2086.28, history=losers)['ok']             # bad fill history kills it
+    winners = [{'realized_pnl': 1.0}] * 200
+    assert R.edge(100, 100.6, history=winners)['win_rate'] > 0.95
+    regime(); bad(lambda: R.validate('ETH-USDT-SWAP', 2000, 2010, 'R1', 20), 'post-fee edge')   # 0.5% band
+    regime(); L = R.validate('ETH-USDT-SWAP', 2053.62, 2086.28, 'R1', 20)
+    assert L['edge']['ok'] and L['edge']['ev_frac'] > 0
+    # dry-run records never count as fill history
+    R.journal({'event': 'trade_closed', 'mode': 'dry_run', 'realized_pnl': 5.0})
+    assert all(h['mode'] == 'execute' for h in R.fill_history())
+
+
+def t_range_trade_stays_disabled():
+    assert config.RANGE_TRADE_ENABLED is False and config.DEMO is True
+
+
 if __name__ == '__main__':
     for name, func in list(globals().items()):
         if name.startswith('t_'):

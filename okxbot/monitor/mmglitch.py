@@ -10,8 +10,10 @@ Rules (per 1m closed bar, baselines = median of the previous `mm_baseline_bars` 
   confirm : >= 3 strong bars in the last 5 AND (basis-adjusted high/low deviation vs index >= 30bp
             OR >= 2 sign flips of the basis-adjusted close-vs-index gap with |gap| >= 15bp in the last 5)
   end     : 5 consecutive normal bars (rel_vol < 5 and range < 3x the baseline frozen at trigger)
-Regime: wake every >= mm_wake_gap_s while active; caps 15 wakes / 30 min per regime, 2 regimes/day;
-a cap hit emits a 'flatten' wake and closes the regime."""
+Regime: an update is wake-worthy only when the band moved by >= mm_update_band_frac of the band last
+woken on (and >= mm_wake_gap_s since the last wake); otherwise it is logged at priority=low. Caps
+15 wakes / 30 min per regime, 2 regimes/day; a cap hit emits a 'flatten' wake and closes the regime.
+All mm_glitch wakes go through the monitor's shared daily/weekly wake budget (wake.py); none bypass it."""
 import datetime as dt, json, os
 from zoneinfo import ZoneInfo
 from okxbot import config
@@ -30,7 +32,7 @@ DEFAULTS = {
     "mm_confirm_strong": 3, "mm_confirm_window": 5,
     "mm_index_dev_bp": 30.0, "mm_cross_gap_bp": 15.0, "mm_cross_flips": 2,
     "mm_end_rel_vol": 5.0, "mm_end_range_mult": 3.0, "mm_end_bars": 5,
-    "mm_wake_gap_s": 90, "mm_max_wakes_per_regime": 15, "mm_max_regime_s": 1800, "mm_max_regimes_per_day": 2,
+    "mm_wake_gap_s": 90, "mm_update_band_frac": 0.25, "mm_max_wakes_per_regime": 15, "mm_max_regime_s": 1800, "mm_max_regimes_per_day": 2,
     "mm_trigger_window_bars": 10,
     "mm_regime_cooldown_s": 1800,          # no new trigger/regime on an instrument this long after one ends/caps          # a trigger arms confirmation for this many bars
     "mm_min_depth_usdt": 1_000_000,        # book depth within mm_depth_band_pct of mid, each side
@@ -174,7 +176,7 @@ class MMGlitch:
             rid = f"{inst}:{r['ts']}"
             self.regime[inst] = {"id": rid, "start_s": now_s, "wakes": 1, "last_wake_s": now_s, "normal": 0,
                                  "base_v": a["base_v"], "base_r": a["base_r"], "lo": min(prices), "hi": max(prices),
-                                 "book_ok": book_ok}
+                                 "book_ok": book_ok, "wake_band": [min(prices), max(prices)]}
             e = self._ev("mm_glitch_confirmed", inst, r, priority="normal", extra=dict(extra, regime_id=rid))
             e["regime_wake"] = True
             out.append(e)
@@ -208,7 +210,12 @@ class MMGlitch:
             e["regime_wake"] = True
             e["severe"] = True
             return [e]
-        if reg["normal"] == 0 and now_s - reg["last_wake_s"] >= cfg["mm_wake_gap_s"]:
+        wb = reg.get("wake_band") or [reg["lo"], reg["hi"]]
+        moved = max(abs(reg["lo"] - wb[0]), abs(reg["hi"] - wb[1])) / max(wb[1] - wb[0], 1e-12)
+        x["band_move_frac"] = round(moved, 4)
+        if reg["normal"] == 0 and now_s - reg["last_wake_s"] >= cfg["mm_wake_gap_s"] \
+                and moved >= cfg["mm_update_band_frac"]:
+            reg["wake_band"] = [reg["lo"], reg["hi"]]
             reg["wakes"] += 1
             reg["last_wake_s"] = now_s
             x["wakes"] = reg["wakes"]

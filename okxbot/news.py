@@ -111,6 +111,33 @@ MAJOR = [r"\b(binance|coinbase|okx|bybit|kraken|bitget|kucoin|gate\.io|htx|upbit
 BIG_USD = re.compile(r"\$\s?(\d+(?:\.\d+)?)\s?(billion|bn|b\b|million|m\b)", re.I)
 
 
+_ENTITY_STOP = {"the", "this", "that", "what", "why", "how", "after", "before", "with", "from", "amid", "over",
+                "breaking", "report", "reports", "update", "news", "crypto", "market", "markets", "price", "prices",
+                "says", "said", "here", "will", "could", "would", "should", "new", "and", "for", "its", "as"}
+
+
+def _events(text):
+    t = text.lower()
+    return {p for p in HI_ALWAYS + HI_CONDITIONAL if re.search(p, t)}
+
+
+def _entities(title):
+    t = title.lower()
+    out = {m.group(0) for p in MAJOR for m in re.finditer(p, t)}
+    out |= {sym for sym, names in NAMES.items() if any(re.search(r"\b" + re.escape(n) + r"\b", t) for n in names)}
+    # proper nouns (capitalised, not the first word), e.g. venue / project / regulator names
+    words = re.findall(r"[A-Za-z][A-Za-z0-9.$]+", title)
+    out |= {w.lower() for w in words[1:] if w[0].isupper() and len(w) >= 3 and w.lower() not in _ENTITY_STOP}
+    return out
+
+
+def same_story(title_a, title_b):
+    """Cross-outlet confirmation (2026-10-19, tightened): both headlines must describe the SAME high-impact
+    event type (same HI pattern, e.g. 'hacked' / 'halts withdrawals') about the SAME entity (venue, asset or
+    proper noun). Sharing generic words such as 'bitcoin price' is no longer enough."""
+    return bool(_events(title_a) & _events(title_b)) and bool(_entities(title_a) & _entities(title_b))
+
+
 def is_high_impact(text):
     t = text.lower()
     for p in HI_ALWAYS:

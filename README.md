@@ -89,6 +89,7 @@ python3 -m scripts.execute_plan plan.json   # 校验计划，默认 dry-run 不�
 python3 -m scripts.execute_plan plan.json --execute   # 执行（模拟盘）
 python3 -m scripts.execute_plan --no-trade --snapshot-id ID --reason "信息不足"
 python3 -m scripts.decisions                # 查看决策记录及结果
+python3 -m scripts.review_report            # 复盘：按类别统计净盈亏，对比 C7 / 持有 / 现金基线
 ```
 
 计划过期、快照超过 45 分钟或信息不足时不交易。快照字段、计划格式和校验规则见 [docs/PLANNER.md](docs/PLANNER.md)。

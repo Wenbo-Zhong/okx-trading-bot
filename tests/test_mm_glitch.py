@@ -51,7 +51,7 @@ def t_thin_book_flagged():
 
 
 def t_caps_flatten_and_daily_limit():
-    _, ev = replay({'mm_max_wakes_per_regime': 3})
+    _, ev = replay({'mm_max_wakes_per_regime': 3, 'mm_update_band_frac': 0})   # every update wake-worthy
     cap = [e for e in ev if e['kind'] == 'mm_glitch_cap_flatten']
     assert cap and 'FLATTEN' in cap[0]['detail']['instruction'] and cap[0]['severe']
     assert sum(1 for e in ev if e.get('regime_wake') and e['kind'] in ('mm_glitch_confirmed', 'mm_glitch_update')) <= 3
@@ -65,23 +65,43 @@ def t_caps_flatten_and_daily_limit():
     assert c['priority'] == 'low' and not c.get('regime_wake')
 
 
-def t_regime_wakes_bypass_hourly_cap():
+def t_regime_wakes_share_budget():
+    """Regression (Codex #5): mm_glitch wakes no longer bypass the hourly/daily caps; they share the budget."""
     clock = [1_000_000.0]
-    cfg = {'coalesce_s': 90, 'wake_min_interval_s': 3600, 'wake_max_per_day': 8, 'fault_cooldown_s': 900}
+    cfg = {'coalesce_s': 90, 'wake_min_interval_s': 3600, 'wake_max_per_day': 8, 'fault_cooldown_s': 900,
+           'wake_max_per_week': 30, 'wake_fault_reserve_week': 6}
     d = tempfile.mkdtemp()
     w = Waker(cfg, clock=lambda: clock[0], log_path=d + '/l', state_path=d + '/s')
     w.add({'kind': 'breakout_up', 'inst': 'X', 'bar': '1H', 'bar_ts': 1})
     clock[0] += 100
     assert w.tick()                       # normal wake uses the hourly slot
-    w.add({'kind': 'breakout_up', 'inst': 'Y', 'bar': '1H', 'bar_ts': 2})
-    clock[0] += 100
-    assert w.tick() is None               # hourly cap holds normal events
-    for i in range(3):
-        w.add({'kind': 'mm_glitch_update', 'inst': 'ETH', 'bar': '1m', 'bar_ts': 10 + i, 'regime_wake': True})
-        p = w.tick()
-        assert p and p['regime'], i       # immediate, no coalesce, no hourly cap
+    sent = 0
+    for i in range(15):                   # a whole regime's worth of updates within the hour
+        w.add({'kind': 'mm_glitch_update', 'inst': 'ETH', 'bar': '1m', 'bar_ts': 10 + i, 'regime_wake': True,
+               'signal': 'mm_glitch', 'detail': {'band': [100, 101 + i]}})
+        sent += bool(w.tick())
         clock[0] += 90
-    assert w.st['count'] == 1 and w.st['regime_wakes'] == 3
+    assert sent == 0 and w.st['count'] == 1   # held by the shared hourly cap
+    clock[0] += 3600
+    assert w.tick() and w.st['count'] == 2    # then coalesced into ONE wake
+    # daily limit 0 -> nothing dispatches, regime or not
+    w0 = Waker(dict(cfg, wake_max_per_day=0), clock=lambda: clock[0], log_path=d + '/l0', state_path=d + '/s0')
+    for i in range(15):
+        w0.add({'kind': 'mm_glitch_update', 'inst': 'ETH', 'bar': '1m', 'bar_ts': 100 + i, 'regime_wake': True,
+                'signal': 'mm_glitch'})
+        assert w0.tick() is None
+        clock[0] += 90
+    w0.add({'kind': 'mm_glitch_cap_flatten', 'inst': 'ETH', 'bar': '1m', 'bar_ts': 999, 'severe': True,
+            'regime_wake': True, 'signal': 'mm_glitch'})
+    assert w0.tick() is None and w0.st['count'] == 0
+
+
+def t_update_wakes_only_on_band_change():
+    m, ev = replay()
+    ups = [e for e in ev if e['kind'] == 'mm_glitch_update']
+    assert ups and all(e['detail']['band_move_frac'] >= 0.25 for e in ups)
+    ticks = [e for e in ev if e['kind'] == 'mm_glitch_tick']
+    assert ticks and all(e['priority'] == 'low' for e in ticks)
 
 
 def mm_fixture(lev=20, stop=98.5, **kw):

@@ -12,6 +12,7 @@ import uuid
 from contextlib import contextmanager
 
 from okxbot import config, sizing, journal_log as J
+from okxbot.review import normalize_review
 from okxbot.bot import Bot, clamp_sl_trigger, fmt_px, load_state, save_state
 from okxbot.risk import guardrail_status
 from okxbot.spot import SpotManager
@@ -76,6 +77,23 @@ def decision_record(result, plan=None, snapshot_path=None, now=None):
     unc = plan.get('uncertainties')
     rec['uncertainties'] = unc if isinstance(unc, list) else rec.get('uncertainties', [])
     rec['valid_until'] = plan.get('valid_until')
+    # structured review fields (hypothesis/evidence/invalidation/horizon/cost budget/category); optional,
+    # malformed fields are recorded in review_errors and never block execution
+    if plan:
+        rv, rerr = normalize_review(plan.get('review'))
+        acts = plan.get('actions') if isinstance(plan.get('actions'), list) else []
+        for row in rec.get('actions') or []:
+            i = row.get('index')
+            a = acts[i] if isinstance(i, int) and 0 <= i < len(acts) and isinstance(acts[i], dict) else {}
+            if 'review' in a:
+                arv, aerr = normalize_review(a.get('review'))
+                if arv:
+                    row['review'] = arv
+                rerr += [f'action {i}: {e}' for e in aerr]
+    else:
+        rv, rerr = normalize_review(rec.get('review'))
+    rec['review'] = rv
+    rec['review_errors'] = rerr
     rec['outcome'] = outcome_summary(rec.get('actions') or [])
     rec['errors'] = list(rec.get('plan_errors') or []) + [
         f"action {a.get('index')}: {'; '.join(a.get('reasons') or [])}"
@@ -87,12 +105,13 @@ def iso_now(now=None):
     return (now or dt.datetime.now(UTC)).astimezone(UTC).isoformat().replace('+00:00', 'Z')
 
 
-def record_no_trade(snapshot_id, reason, uncertainties=None, now=None):
-    """Journal an explicit planner decision not to trade (insufficient info, nothing worth doing...)."""
+def record_no_trade(snapshot_id, reason, uncertainties=None, now=None, review=None):
+    """Journal an explicit planner decision not to trade (insufficient info, nothing worth doing...).
+    review: optional okxbot.review fields; use 'watch' + 'horizon_h' so the opportunity cost can be measured."""
     rec = decision_record({'kind': 'no_trade', 'plan_id': None, 'snapshot_id': snapshot_id, 'mode': 'no_trade',
                            'valid': True, 'plan_errors': [], 'actions': [],
                            'rationale': required_text(reason, 'reason'),
-                           'uncertainties': list(uncertainties or [])}, None, None, now)
+                           'uncertainties': list(uncertainties or []), 'review': review}, None, None, now)
     if rec['snapshot_sha256'] is None:
         rec['errors'].append('snapshot not found: ' + str(snapshot_id))
     journal_decision(rec)

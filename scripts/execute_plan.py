@@ -1,7 +1,11 @@
 """Validate a structured plan (okxbot.plan/v1); DRY-RUN by default, orders only with --execute (DEMO keys).
 
   python3 -m scripts.execute_plan PLAN.json [--execute] [--snapshot PATH]
-  python3 -m scripts.execute_plan --no-trade --snapshot-id SNAP_ID --reason "..." [--uncertainty "..."]...
+  python3 -m scripts.execute_plan --no-trade --snapshot-id SNAP_ID --reason "..." [--uncertainty "..."]... [--review JSON]
+Optional review fields (plan JSON "review" / per-action "review" / --review for no-trade), see okxbot/review.py:
+  {"category": "news_event|trend_breakout|oscillation|other", "hypothesis": "...", "evidence": ["..."],
+   "invalidation": "...", "horizon_h": 4, "cost_budget_usdt": 15,
+   "watch": [{"instId": "BTC-USDT-SWAP", "side": "long", "stop": 81000}]}
 Prints one JSON result; every call is appended to DATA_DIR/decision_journal.jsonl."""
 import argparse
 import contextlib
@@ -21,11 +25,18 @@ def main():
     parser.add_argument('--snapshot-id')
     parser.add_argument('--reason')
     parser.add_argument('--uncertainty', action='append', default=[])
+    parser.add_argument('--review', help='JSON object with review fields (no-trade)')
     args = parser.parse_args()
     if args.no_trade:
         if args.plan or args.execute or not args.snapshot_id or not args.reason:
             parser.error('--no-trade needs --snapshot-id and --reason (and no plan/--execute)')
-        rec = record_no_trade(args.snapshot_id, args.reason, args.uncertainty)
+        review = None
+        if args.review:
+            try:
+                review = json.loads(args.review)
+            except ValueError as e:
+                review = {'_invalid_json': str(e)[:100]}   # journaled as review_errors, decision still recorded
+        rec = record_no_trade(args.snapshot_id, args.reason, args.uncertainty, review=review)
         print(json.dumps(rec, sort_keys=True, ensure_ascii=False, allow_nan=False))
         return 0 if not rec['errors'] else 1
     if not args.plan:

@@ -229,6 +229,99 @@ def test_settings_override_from_config_json():
         ms.PATH = old
 
 
+def _w(cfg, now, d, name):
+    return Waker(cfg, enabled=False, clock=lambda: now[0], log_path=os.path.join(d, name + ".l"),
+                 state_path=os.path.join(d, name + ".s"))
+
+
+def test_wake_budget_shared_weekly_and_persisted():
+    """Codex #5: every wake type shares a persisted weekly budget; faults keep a small reserve."""
+    cfg = dict(CFG, wake_max_per_day=50, wake_max_per_week=5, wake_fault_reserve_week=2, wake_fault_reserve_day=2,
+               wake_min_interval_s=0, coalesce_s=0, fault_cooldown_s=0, kind_cooldown_s=0)
+    now = [dt.datetime(2026, 10, 19, 2, 0, tzinfo=UTC).timestamp()]   # Monday 10:00 Shanghai
+    d = tempfile.mkdtemp()
+    w = _w(cfg, now, d, "a")
+    kinds = ["breakout_up", "material_news", "mm_glitch_confirmed", "adverse_move"]
+    got = []
+    for i, k in enumerate(kinds):
+        w.add({"kind": k, "inst": f"I{i}", "bar_ts": i, "signal": "mm_glitch" if k.startswith("mm") else None})
+        now[0] += 1; got.append(bool(w.tick()))
+    assert got == [True, True, True, False], got        # ordinary wakes stop at week cap - fault reserve
+    w2 = _w(cfg, now, d, "a")                            # restart: budget persisted
+    assert w2.st["week_count"] == 3 and w2.st["week"] == "2026-W43"
+    w2.add({"kind": "x", "inst": "Z", "bar_ts": 9}); now[0] += 1
+    assert w2.tick() is None
+    for i in range(3):                                   # faults use the reserve, then stop at the week cap
+        w2.add({"kind": "protection_fault", "category": "fault", "severe": True, "dedupe": f"f{i}"})
+        now[0] += 1; r = w2.tick()
+        assert bool(r) == (i < 2), i
+    assert w2.st["week_count"] == 5 and w2.st["week_faults"] == 2
+    now[0] += 7 * 86400                                  # next ISO week resets
+    w2.add({"kind": "y", "inst": "Q", "bar_ts": 10}); now[0] += 1
+    assert w2.tick() and w2.st["week_count"] == 1
+
+
+def test_wake_daily_limit_zero_dispatches_nothing():
+    cfg = dict(CFG, wake_max_per_day=0)
+    now = [dt.datetime(2026, 10, 19, 2, 0, tzinfo=UTC).timestamp()]
+    w = _w(cfg, now, tempfile.mkdtemp(), "z")
+    for i, e in enumerate([{"kind": "breakout_up", "inst": "A"}, {"kind": "mm_glitch_update", "inst": "ETH",
+                           "regime_wake": True, "signal": "mm_glitch"},
+                           {"kind": "circuit_breaker_halted", "category": "fault", "severe": True}]):
+        w.add(dict(e, bar_ts=i)); now[0] += 4000
+        assert w.tick() is None
+    assert w.st["count"] == 0
+
+
+def test_fault_reserve_beyond_daily_cap():
+    cfg = dict(CFG, wake_max_per_day=1, wake_fault_reserve_day=1, wake_max_per_week=30, coalesce_s=0,
+               fault_cooldown_s=0)
+    now = [dt.datetime(2026, 10, 19, 2, 0, tzinfo=UTC).timestamp()]
+    w = _w(cfg, now, tempfile.mkdtemp(), "f")
+    w.add({"kind": "a", "inst": "A", "bar_ts": 1}); now[0] += 1; assert w.tick()
+    w.add({"kind": "b", "inst": "B", "bar_ts": 2}); now[0] += 4000; assert w.tick() is None   # daily cap
+    w.add({"kind": "halt", "severe": True, "dedupe": "h1"}); now[0] += 1
+    p = w.tick(); assert p and p["fault"] and p["count"] == 2      # reserve carries the pending ordinary event
+    w.add({"kind": "halt", "severe": True, "dedupe": "h2"}); now[0] += 1
+    assert w.tick() is None                                         # reserve used up
+
+
+def test_material_change_needed_within_cooldown():
+    cfg = dict(CFG, coalesce_s=0, wake_min_interval_s=0)
+    now = [dt.datetime(2026, 10, 19, 2, 0, tzinfo=UTC).timestamp()]
+    w = _w(cfg, now, tempfile.mkdtemp(), "m")
+    e = {"kind": "mm_glitch_update", "inst": "ETH", "bar": "1m", "signal": "mm_glitch"}
+    assert w.add(dict(e, bar_ts=1, detail={"band": [100, 110]})); now[0] += 1; assert w.tick()
+    assert w.add(dict(e, bar_ts=2, detail={"band": [100, 111]})) is False        # 10% move: not material
+    assert w.add(dict(e, bar_ts=3, detail={"band": [97, 110]}))                  # 30% move: range changed
+    assert w.pending[-1]["material_change"] == "band_change"
+    r = {"kind": "adverse_move", "inst": "X", "bar": ""}
+    now[0] += 1; w.tick()
+    assert w.add(dict(r, bar_ts=4, detail={"risk_level": 1})); now[0] += 1; w.tick()
+    assert w.add(dict(r, bar_ts=5, detail={"risk_level": 1})) is False
+    assert w.add(dict(r, bar_ts=6, detail={"risk_level": 2}))                    # risk changed
+
+
+def test_stale_pending_dropped():
+    cfg = dict(CFG, pending_max_age_s=600, wake_max_per_day=1)
+    now = [dt.datetime(2026, 10, 19, 2, 0, tzinfo=UTC).timestamp()]
+    w = _w(cfg, now, tempfile.mkdtemp(), "s")
+    w.add({"kind": "a", "inst": "A", "bar_ts": 1}); now[0] += CFG["coalesce_s"]; assert w.tick()
+    w.add({"kind": "b", "inst": "B", "bar_ts": 2}); now[0] += 700
+    assert w.tick() is None and w.pending == []
+
+
+def test_news_confirmation_needs_same_entity_and_event():
+    """Codex #4 (small fix): sharing two long words ('bitcoin', 'price') no longer counts as confirmation."""
+    from okxbot import news
+    assert not news.same_story("Bitcoin price slides as ETF outflows continue",
+                               "Bitcoin price slides further, analysts warn")          # no shared HI event
+    assert not news.same_story("Bybit hacked for $1.4 billion", "Upbit hacked, $30M stolen")   # different venue
+    assert not news.same_story("Binance halts withdrawals amid outage", "Coinbase halts withdrawals for maintenance")
+    assert news.same_story("Bybit hacked for $1.4 billion in ETH", "Hackers drain Bybit: exchange hacked, $1.4B stolen")
+    assert news.same_story("Binance halts withdrawals amid outage", "Binance suspends withdrawals temporarily")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -38,12 +38,22 @@ def main():
     ap.add_argument('--execute', action='store_true')
     a = ap.parse_args()
     assert config.DEMO, 'DEMO only'
-    try:
-        L = R.validate(a.inst, a.lower, a.upper, a.regime_id, a.lev)
-    except ValueError as e:
-        R.journal({'event': 'rejected', 'instId': a.inst, 'regime_id': a.regime_id, 'error': str(e)})
-        print(json.dumps({'valid': False, 'error': str(e)}, ensure_ascii=False)); return 1
     c = OKX()
+    costs, errs = {}, []
+    try:   # actual fee rate + executing-book spread for the post-fee edge gate (config fallbacks on error)
+        from okxbot.snapshot import fetch_fees
+        costs['fee_taker'] = fetch_fees(c, a.inst, errs)['taker']
+        t = c._req('GET', '/api/v5/market/ticker', {'instId': a.inst}, demo_public=True)[0]   # executing (demo) book
+        bid, ask = float(t['bidPx']), float(t['askPx'])
+        costs['spread_frac'] = (ask - bid) / ((ask + bid) / 2)
+    except Exception as e:
+        errs.append(str(e)[:200])
+    try:
+        L = R.validate(a.inst, a.lower, a.upper, a.regime_id, a.lev, costs=costs)
+    except ValueError as e:
+        R.journal({'event': 'rejected', 'instId': a.inst, 'regime_id': a.regime_id, 'error': str(e), 'costs': costs,
+                   'cost_errors': errs})
+        print(json.dumps({'valid': False, 'error': str(e)}, ensure_ascii=False)); return 1
     execute = a.execute and config.RANGE_TRADE_ENABLED
     if a.execute and not execute:
         print('RANGE_TRADE_ENABLED is False -> dry-run')
@@ -57,14 +67,26 @@ def main():
                  spec=spec, equity=equity)
     r.log('start', band=[a.lower, a.upper], levels=L, equity=equity)
     print(json.dumps({'valid': True, 'mode': 'execute' if r.execute else 'dry_run', 'levels': L}))
-    try:
-        while r.step():
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        r.stop('interrupted')
-    except Exception as e:
-        r.log('error', error=str(e)[:300]); r.stop('runner error')
-    print(json.dumps({'stopped': r.done, 'trades': r.trades, 'cum_realized_est': round(r.cum, 2)}))
+    give_up = None
+    while True:
+        try:
+            if not r.step():
+                break
+        except KeyboardInterrupt:
+            r.stop('interrupted')
+        except Exception as e:
+            r.log('error', error=str(e)[:300]); r.stop('runner error')
+        if r.stopping and not r.done:      # flatten not confirmed: keep retrying, exchange stop stays on
+            give_up = give_up or time.time() + config.RANGE_FLATTEN_RETRY_S
+            if time.time() > give_up:
+                r.log('flatten_abandoned', reason=r.stopping,
+                      note='exchange SL/TP and monitor max-hold enforcement remain as backstop')
+                break
+            time.sleep(2)
+            continue
+        time.sleep(0.5)
+    print(json.dumps({'stopped': r.done or r.stopping, 'trades': r.trades, 'cum_realized': round(r.cum, 2),
+                      'mode': 'execute' if r.execute else 'dry_run (simulated)'}))
     return 0
 
 

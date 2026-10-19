@@ -66,6 +66,12 @@ def main():
             print("  ", r["time"], r["event"], r["instId"], r["side"], r["price"], r["pnl"], r["reason"])
     else:
         print("\nTrade log: empty")
+    try:   # decision review (planner window): by category + C7 / hold / cash baselines; full: scripts/review_report.py
+        from scripts.review_report import render
+        from okxbot import review as RV
+        print("\n" + render(RV.build()))
+    except Exception as e:
+        print(f"\n(decision review unavailable: {e})")
 
 
 if __name__ == "__main__":

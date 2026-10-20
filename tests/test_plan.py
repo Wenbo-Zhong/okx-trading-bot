@@ -415,6 +415,54 @@ def t_removed_instrument_cannot_open():
     except ValueError as e:
         assert 'removed from trading universe' in str(e), e
 
+
+def t_prices_and_sizes_are_plain_decimals():
+    # 10/20 12:38: PEPE stop 4.47e-06 went out as scientific notation and OKX answered 51000.
+    assert P._pxs(4.47e-06) == '0.00000447' and P._pxs(1e-05) == '0.00001'
+    assert P._pxs(2391.6) == '2391.6' and P._pxs(57.64) == '57.64' and P._pxs(100.0) == '100.0'
+    def strings(body):
+        out = [body.get(k) for k in ('px', 'sz')]
+        for att in body.get('attachAlgoOrds') or []:
+            out += [att.get('slTriggerPx'), att.get('tpTriggerPx')]
+        return [v for v in out if v is not None]
+    tiny = {'instId': 'PEPE-USDT', 'state': 'live', 'tickSz': '0.00000001', 'lotSz': '1', 'minSz': '1', 'ctVal': '1'}
+    for market, inst, side, stop, tp in (('spot', 'PEPE-USDT', 'long', 4.31e-06, 4.79e-06),
+                                         ('swap', 'PEPE-USDT-SWAP', 'short', 4.63e-06, 4.15e-06)):
+        plan, snapshot, state, path = fixture()
+        snapshot['instruments'][inst] = {'spec': dict(tiny, instId=inst, ctVal='1000000' if market == 'swap' else '1'),
+                                         'last': 4.47e-06, 'mark': 4.47e-06, 'liquidity_ok': True}
+        a = opening(instId=inst, market=market, side=side, stop=stop, take_profit=tp,
+                    order_type='limit', limit_px=4.47e-06, size={'risk_usdt': 5})
+        body, _ = P.validate_action(a, snapshot, state)
+        vals = strings(body)
+        assert vals and not any('e' in v.lower() for v in vals), body
+        att = body['attachAlgoOrds'][0]
+        assert body['px'] == '0.00000447', body
+        assert att['slTriggerPx'] == P._pxs(stop) and att['tpTriggerPx'] == P._pxs(tp), att
+        for v in (body['px'], att['slTriggerPx'], att['tpTriggerPx']):   # on the tick grid, no float drift
+            assert abs(float(v) / 1e-08 - round(float(v) / 1e-08)) < 1e-6, v
+    # Normal prices are unchanged.
+    plan, snapshot, state, path = fixture(opening(order_type='limit', limit_px=100.))
+    body, _ = P.validate_action(plan['actions'][0], snapshot, state)
+    assert body['px'] == '100.0' and body['attachAlgoOrds'][0]['slTriggerPx'] == '97.0'
+    assert body['attachAlgoOrds'][0]['tpTriggerPx'] == '106.0'
+
+
+def t_amend_paths_send_plain_decimals():
+    p, s, st, path = fixture()
+    x = Fake(); assert P.run_plan(p, True, client=x)['actions'][0]['status'] == 'executed'
+    b = P.make_bot(x); b.pos_mode = 'net_mode'
+    for kind, key, value in (('amend_sl', 'stop', 4.47e-06), ('amend_tp', 'take_profit', 5.12e-06), ('amend_sl', 'stop', 98.5)):
+        before = len(x.posts)
+        try:
+            P.execute_action(b, {'action': kind, 'instId': 'BTC-USDT'}, {key: value}, 'fmt-test')
+        except Exception:
+            pass   # post-amend verification may object to the synthetic price; only the wire format matters
+        field = 'newSlTriggerPx' if key == 'stop' else 'newTpTriggerPx'
+        sent = [body for k, body in x.posts[before:] if k == 'amend' and field in body]
+        assert sent, (kind, x.posts[before:])
+        assert all(body[field] == P._pxs(value) and 'e' not in body[field] for body in sent), sent
+
 if __name__ == '__main__':
     for name, func in list(globals().items()):
         if name.startswith('t_'):

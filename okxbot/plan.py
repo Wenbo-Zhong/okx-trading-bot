@@ -10,12 +10,18 @@ from pathlib import Path
 import time
 import uuid
 from contextlib import contextmanager
+from decimal import Decimal
 
 from okxbot import config, sizing, journal_log as J
 from okxbot.review import normalize_review
 from okxbot.bot import Bot, clamp_sl_trigger, fmt_px, load_state, save_state
 from okxbot.risk import guardrail_status
 from okxbot.spot import SpotManager
+
+
+def _pxs(v):
+    """Price/size as a plain decimal string (shortest float repr, no drift added); OKX rejects 4.06e-06."""
+    return format(Decimal(repr(float(v))), 'f')
 
 UTC = dt.timezone.utc
 TERMINAL = ('filled', 'canceled', 'mmp_canceled')
@@ -427,14 +433,14 @@ def validate_action(a, snapshot, state, reserved=None):
         raise ValueError('size below minimum after clamps')
     notes += extra
     body = {'instId': inst, 'tdMode': 'cash' if market == 'spot' else config.TD_MODE,
-            'side': 'buy' if side == 1 else 'sell', 'ordType': order_type, 'sz': str(qty)}
+            'side': 'buy' if side == 1 else 'sell', 'ordType': order_type, 'sz': _pxs(qty)}
     if order_type == 'limit':
-        body['px'] = str(entry)
+        body['px'] = _pxs(entry)
     elif market == 'spot':
         body.update(sz=str(round(qty * entry, 2)), tgtCcy='quote_ccy')
-    attach = {'slTriggerPx': str(stop), 'slOrdPx': '-1', 'slTriggerPxType': 'last' if market == 'spot' else 'mark'}
+    attach = {'slTriggerPx': _pxs(stop), 'slOrdPx': '-1', 'slTriggerPxType': 'last' if market == 'spot' else 'mark'}
     if tp is not None:
-        attach.update(tpTriggerPx=str(tp), tpOrdPx='-1', tpTriggerPxType='last')
+        attach.update(tpTriggerPx=_pxs(tp), tpOrdPx='-1', tpTriggerPxType='last')
     body['attachAlgoOrds'] = [attach]
     return body, notes
 
@@ -568,8 +574,8 @@ def ensure_tp(b, inst, side, qty, tp):
     if missing <= 1e-9:
         return
     body = {'instId': inst, 'tdMode': config.TD_MODE if inst.endswith('-SWAP') else 'cash',
-            'side': exit_side, 'ordType': 'conditional', 'sz': str(missing),
-            'tpTriggerPx': str(tp), 'tpOrdPx': '-1'}
+            'side': exit_side, 'ordType': 'conditional', 'sz': _pxs(missing),
+            'tpTriggerPx': _pxs(tp), 'tpOrdPx': '-1'}
     if inst.endswith('-SWAP'):
         body['reduceOnly'] = True
         if b.pos_side(side):
@@ -677,7 +683,7 @@ def execute_action(b, a, order, plan_id):
                 float(ms['maxBuy' if side == 1 else 'maxSell']))
             if qty <= 0:
                 raise ValueError('size below minimum at requested leverage')
-            body['sz'] = str(qty)
+            body['sz'] = _pxs(qty)
         order.update(body)
         if a.get('signal') == 'mm_glitch':
             mm_mark_regime_used(a['regime_id'])   # write-ahead: the regime is spent even if the order fails
@@ -711,7 +717,7 @@ def execute_action(b, a, order, plan_id):
             return {'filled': before - remaining, 'remaining': remaining}
         side = rec['side']
         body = {'instId': inst, 'tdMode': config.TD_MODE, 'side': 'sell' if side == 1 else 'buy',
-                'ordType': 'market', 'sz': str(order['size']), 'reduceOnly': True,
+                'ordType': 'market', 'sz': _pxs(order['size']), 'reduceOnly': True,
                 'clOrdId': 'botc' + uuid.uuid4().hex[:24]}
         if b.pos_side(side):
             body['posSide'] = b.pos_side(side)
@@ -750,7 +756,7 @@ def execute_action(b, a, order, plan_id):
             removed.add(algo['algoId'])
             continue
         checked(b.x.amend_algo({'instId': inst, 'algoId': algo['algoId'],
-                'new' + prefix + 'TriggerPx': '0' if value is None else str(value),
+                'new' + prefix + 'TriggerPx': '0' if value is None else _pxs(value),
                 'new' + prefix + 'OrdPx': '-1' if value is not None else '0'}))
     live = b.x.pending_algos(inst)
     field = prefix.lower() + 'TriggerPx'

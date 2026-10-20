@@ -6,9 +6,10 @@ from okxbot import config
 
 
 class OKXError(Exception):
-    def __init__(self, message, code=None):
+    def __init__(self, message, code=None, data=None):
         super().__init__(message)
         self.code = code
+        self.data = data
 
 
 class OKX:
@@ -91,7 +92,7 @@ class OKX:
                 time.sleep(2 * (attempt + 1)); last = j; attempt += 1; continue
             if j.get("code") != "0":
                 raise OKXError(f"{method} {path} -> code={j.get('code')} msg={j.get('msg')} data={j.get('data')}",
-                               code=j.get("code"))
+                               code=j.get("code"), data=j.get("data"))
             return j["data"]
         raise OKXError(f"{method} {path} failed after retries: {last}")
 

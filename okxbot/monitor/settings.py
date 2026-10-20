@@ -21,7 +21,7 @@ DEFAULTS = {
     "stock_candidates": ["NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "COIN", "MSTR"],
     "stock_extra": 2,                # add the N highest-volume candidates
     "stock_bars": ["1H"],
-    "commodities": ["XAU", "XAG", "CL", "BZ"],
+    "commodities": ["XAU", "CL", "BZ"],      # XAG removed 10/20 (user)
     "commodity_bars": ["1H"],
     "held_bars": ["15m", "1H"],
     # --- signals (closed bars) ---

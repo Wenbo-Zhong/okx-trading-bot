@@ -339,6 +339,82 @@ def t_spot_dust_does_not_count_as_position():
     except ValueError as e:
         assert 'MAX_POSITIONS' in str(e)
 
+
+def t_refresh_values_dust_at_snapshot_last_not_avg_px():
+    # 10/20: execution-time refresh rebuilt spot balances with last=None, so ZRO/ONDO dust was valued
+    # at a bogus accAvgPx and filled MAX_POSITIONS together with one real swap.
+    plan, snapshot, state, path = fixture(opening(instId='BTC-USDT-SWAP', market='swap', side='short',
+                                                  stop=103., take_profit=94., size={'risk_usdt': 10}))
+    snapshot['account']['positions'] = [
+        {'instId': 'ZRO-USDT', 'market': 'spot', 'side': 'long', 'size': 0.000344, 'avg_px': 170352.0, 'last': 1.869},
+        {'instId': 'ONDO-USDT', 'market': 'spot', 'side': 'long', 'size': 0.000372, 'avg_px': 1432074.0, 'last': 0.437}]
+    x = Fake()
+    base_balance = x.balance
+    def balance():
+        rows = base_balance()
+        rows[0]['details'] += [{'ccy': 'ZRO', 'cashBal': '0.000344', 'accAvgPx': '170352'},
+                               {'ccy': 'ONDO', 'cashBal': '0.000372', 'accAvgPx': '1432074'},
+                               {'ccy': 'APT', 'cashBal': '0.0000375', 'accAvgPx': '9999999'}]
+        return rows
+    x.balance = balance
+    x.positions = lambda: [{'instId': 'ETH-USDT-SWAP', 'pos': '-1', 'avgPx': '2400', 'last': '2400', 'markPx': '2400'}]
+    b = P.make_bot(x)
+    out = P.refresh(b, snapshot, plan['actions'][0])
+    last = {p['instId']: p['last'] for p in out['account']['positions']}
+    assert last['ZRO-USDT'] == 1.869 and last['ONDO-USDT'] == 0.437, last
+    assert last['APT-USDT'] == 100.0, last   # not in snapshot: read-only ticker fallback
+    order, _ = P.validate_action(plan['actions'][0], out, P.load_state())
+    assert order['instId'] == 'BTC-USDT-SWAP'
+
+
+def t_definite_rejection_clears_pending_ambiguous_keeps_it():
+    from okxbot.okx_client import OKXError
+    cases = [
+        (lambda b: OKXError('code=1', code='1', data=[{'sCode': '51155', 'sMsg': 'compliance'}]), False),
+        (lambda b: OKXError('code=51008', code='51008'), False),
+        (lambda b: [{'ordId': '', 'sCode': '51155', 'sMsg': 'compliance'}], False),
+        (lambda b: OKXError('code=50004 timeout', code='50004'), True),
+        (lambda b: OKXError('code=1', code='1', data=[{'sCode': '50013'}]), True),
+        (lambda b: OKXError('POST /api/v5/trade/order outcome unknown after one retry: reset'), True),
+        (lambda b: RuntimeError('connection reset'), True),
+        (lambda b: [], True),
+    ]
+    for make, stays in cases:
+        p, s, st, path = fixture()
+        x = Fake()
+        def place(body, make=make):
+            x.posts.append(('order', copy.deepcopy(body)))
+            r = make(body)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        x.place_order = place
+        result = P.run_plan(p, True, client=x)
+        assert result['actions'][0]['status'] == 'failed', result
+        assert bool(P.load_state().get('plan_pending')) == stays, (make(None), P.load_state().get('plan_pending'))
+    # After a definite rejection, a later entry is no longer blocked by a stale intent.
+    p, s, st, path = fixture()
+    x = Fake(); orig = x.place_order
+    x.place_order = lambda body: (_ for _ in ()).throw(OKXError('rej', code='1', data=[{'sCode': '51155'}]))
+    assert P.run_plan(p, True, client=x)['actions'][0]['status'] == 'failed'
+    x.place_order = orig
+    p['plan_id'] = 'retry-after-reject'
+    assert P.run_plan(p, True, client=x)['actions'][0]['status'] == 'executed'
+
+
+def t_removed_instrument_cannot_open():
+    assert 'XAG' not in config.TRADFI_LIST and 'XAG' not in config.TRADFI_COMMODITIES
+    from okxbot.monitor.settings import DEFAULTS as M
+    assert 'XAG' not in M['commodities']
+    plan, snapshot, state, path = fixture(opening(instId='XAG-USDT-SWAP', market='swap', side='short',
+                                                  stop=103., take_profit=94., size={'risk_usdt': 10}))
+    snapshot['instruments']['XAG-USDT-SWAP'] = dict(snapshot['instruments']['BTC-USDT-SWAP'],
+                                                    spec=dict(SPEC, instId='XAG-USDT-SWAP'))
+    try:
+        P.validate_action(plan['actions'][0], snapshot, state); raise AssertionError('expected removal block')
+    except ValueError as e:
+        assert 'removed from trading universe' in str(e), e
+
 if __name__ == '__main__':
     for name, func in list(globals().items()):
         if name.startswith('t_'):

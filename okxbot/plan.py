@@ -287,6 +287,8 @@ def validate_action(a, snapshot, state, reserved=None):
         if not any(r.get(key) == a[key] and r.get('instId') == inst for r in rows):
             raise ValueError('order does not belong to this instrument')
         return {'instId': inst, key: a[key]}, []
+    if kind == 'open' and inst.split('-')[0] in getattr(config, 'UNIVERSE_REMOVED', ()):
+        raise ValueError('instrument removed from trading universe')
     if kind != 'open' and not (rec and held):
         raise ValueError('tracked position must exist on exchange')
     if kind == 'close':
@@ -456,6 +458,17 @@ def refresh(b, snapshot, action):
     out['account'] = fetch_account(b.x, b.st, errors)
     if errors:
         raise ValueError('account refresh incomplete: ' + '; '.join(errors))
+    # Spot balances come back without a last price; reuse the snapshot's price (as snapshot.py does)
+    # so dust valuation does not fall back to a meaningless accAvgPx and miscount MAX_POSITIONS.
+    prev = {p.get('instId'): p.get('last') for p in (snapshot.get('account') or {}).get('positions') or []}
+    for p in out['account'].get('positions') or []:
+        if p.get('last') is None:
+            p['last'] = prev.get(p.get('instId')) or ((snapshot.get('instruments') or {}).get(p.get('instId')) or {}).get('last')
+        if p.get('last') is None and p.get('market') == 'spot':
+            try:   # read-only fallback so a bogus accAvgPx is never the only valuation
+                p['last'] = float(b.x._req('GET', '/api/v5/market/ticker', {'instId': p['instId']})[0]['last'])
+            except Exception:
+                pass   # counts() then falls back to avg_px
     b.pos_mode = b.x.account_config()[0]['posMode']
     b.usdt_avail = out['account']['avail_usdt']
     can, _, why = guardrail_status(b.st, out['account']['equity_usdt'])
@@ -490,10 +503,34 @@ def refresh(b, snapshot, action):
     return out
 
 
+class Rejected(ValueError):
+    def __init__(self, rows):
+        super().__init__('exchange rejected request: ' + str(rows))
+        self.data = rows
+
+
 def checked(rows):
     if not rows or any(r.get('sCode') not in (None, '', '0') for r in rows):
-        raise ValueError('exchange rejected request: ' + str(rows))
+        raise Rejected(rows)
     return rows
+
+
+# OKX codes that do not prove the order was refused (timeouts / busy / internal errors).
+AMBIGUOUS_CODES = {'50001', '50004', '50013', '50026', '51149'}
+
+
+def definite_rejection(e):
+    """True only when the exchange answered with a concrete refusal, so no order can exist."""
+    code = str(getattr(e, 'code', None) or '')
+    if not isinstance(e, Rejected) and not code:
+        return False   # network loss, unknown outcome, lookup failure, bot policy: keep the intent
+    rows = getattr(e, 'data', None) or []
+    if not isinstance(rows, list):
+        rows = []
+    codes = {str(r.get('sCode') or '') for r in rows if isinstance(r, dict)} - {'', '0'}
+    if isinstance(e, Rejected) and not codes:
+        return False   # empty or malformed success response is not proof of refusal
+    return not ((codes | {code}) & AMBIGUOUS_CODES)
 
 
 def settle(b, pending):
@@ -647,7 +684,15 @@ def execute_action(b, a, order, plan_id):
         pending = {'body': body, 'action': a, 'spec': b.instr[inst], 'plan_id': plan_id}
         b.st.setdefault('plan_pending', {})[body['clOrdId']] = pending
         save_state(b.st)  # write-ahead intent, including for swap and limit orders
-        response = checked(b.x.place_order(body))[0]
+        try:
+            response = checked(b.x.place_order(body))[0]
+        except Exception as e:
+            # A definite exchange rejection (error code / sCode) means no order exists: drop the
+            # write-ahead intent so it doesn't block later entries. Unknown outcomes stay pending.
+            if definite_rejection(e):
+                b.st['plan_pending'].pop(body['clOrdId'], None)
+                save_state(b.st)
+            raise
         pending['ordId'] = response['ordId']
         save_state(b.st)
         result = finish_open(b, pending)

@@ -69,8 +69,9 @@ ALERT_COOLDOWN_H = 4             # don't repeat the same alert within N hours
 
 # ---- US stock / commodity perps ("TradFi", approved 2026-10-10 15:14) ----
 TRADFI_ENABLED = True
-TRADFI_LIST = ["QQQ", "SPY", "XAU", "CL", "BZ", "XAG"]  # user 10/10: stocks only Nasdaq (QQQ) + S&P (SPY); SPY auto-skipped while demo price is off
-TRADFI_COMMODITIES = {"XAU", "CL", "BZ", "XAG"}
+TRADFI_LIST = ["QQQ", "SPY", "XAU", "CL", "BZ"]  # user 10/10: stocks only Nasdaq (QQQ) + S&P (SPY); SPY auto-skipped while demo price is off
+TRADFI_COMMODITIES = {"XAU", "CL", "BZ"}
+UNIVERSE_REMOVED = {"XAG"}       # user 10/20: silver removed (OKX 51155 compliance rejections); planner refuses new entries
 TRADFI_MAX_MARK_DEV = 0.02       # skip if demo mark deviates > 2% from production mark (checked every cycle)
 TRADFI_MIN_VOL_USDT = 2_000_000  # min production 24h notional
 TRADFI_RISK_MULT = 0.5           # C7 backtest on these was negative (PF 0.88) -> 0.25% risk instead of 0.5%

@@ -49,13 +49,13 @@ DEFAULTS = {
     "news_max_age_h": 3,
     # --- wakes ---
     "coalesce_s": 90,
-    "wake_min_interval_s": 3600,
-    "wake_max_per_day": 8,           # ordinary wakes/day (0 = kill switch: nothing dispatches)
+    "wake_min_interval_s": 1200,        # 20 min (was 3600; needed so ~40/day can fire)
+    "wake_max_per_day": 40,          # ordinary wakes/day (0 = kill switch: nothing dispatches); raised 2026-10-29 per Wenbo
     "fault_cooldown_s": 900,
     # shared persisted budget for ALL wake types incl. mm_glitch (2026-10-19, Codex review #5)
-    "wake_max_per_week": 30,         # ISO week, Asia/Shanghai; 0 = kill switch
-    "wake_fault_reserve_week": 6,    # part of the weekly cap only fault/halt wakes may use
-    "wake_fault_reserve_day": 2,     # fault/halt wakes may exceed wake_max_per_day by this much
+    "wake_max_per_week": 200,        # ISO week, Asia/Shanghai; 0 = kill switch; raised with daily 40
+    "wake_fault_reserve_week": 20,   # part of the weekly cap only fault/halt wakes may use
+    "wake_fault_reserve_day": 5,     # fault/halt wakes may exceed wake_max_per_day by this much
     "pending_max_age_s": 7200,       # undelivered events older than this are dropped, not sent stale
     "material_band_frac": 0.25,      # within kind cooldown a band must move >= 25% of its width to re-wake
     # same kind+inst+bar cannot wake again within this window unless direction flips with high rel_vol

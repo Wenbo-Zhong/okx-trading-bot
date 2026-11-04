@@ -19,7 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from okxbot import config, events, indicators, liqmap, news, sizing, strategy
-from okxbot.risk import guardrail_status
+from okxbot.risk import guardrail_status, kill_status_lines, active_entry_blocks
 
 UTC = dt.timezone.utc
 BAR_COUNTS = {"15m": 48, "1H": 48, "4H": 60, "1D": 30}
@@ -355,11 +355,17 @@ def build_snapshot(client, inst=None, no_news=False, now=None, state=None, news_
         can_open, must_flatten, status = guardrail_status(state, equity)
     else:
         can_open, must_flatten, status = False, None, "account unavailable"
+    kill_lines = kill_status_lines(state)
+    entry_blocks = active_entry_blocks(state)
     guards = {"can_open": can_open, "must_flatten": must_flatten, "status": status,
+              "kill": kill_lines, "entry_blocks": entry_blocks,
+              "kill_state": dict(state.get("kill") or {}),
               **{k: state.get(k) for k in ("day_start_equity", "peak_equity")},
               "halted": bool(state.get("halted")),
               **{k: getattr(config, k) for k in ("MAX_LEVERAGE", "MAX_MARGIN_PCT", "MAX_POSITIONS",
-                 "RISK_PER_TRADE", "DAILY_LOSS_LIMIT", "MAX_DRAWDOWN", "MIN_STOP_PCT", "MAX_STOP_PCT")}}
+                 "RISK_PER_TRADE", "DAILY_LOSS_LIMIT", "MAX_DRAWDOWN", "MIN_STOP_PCT", "MAX_STOP_PCT",
+                 "KILL_CONSEC_LOSSES", "KILL_CONSEC_PAUSE_H", "KILL_ENTRY_SLIP_PCT", "KILL_STALE_DATA_S",
+                 "CORRELATION_GROUP_MAX_RISK_UNITS")}}
     before = len(errors)
     ids = sorted(set(inst)) if inst is not None else default_universe(client, state, account, errors)
     specs, ticks, marks = {}, {}, {}
@@ -417,6 +423,8 @@ def write_snapshot(snapshot, out=None):
 
 def render_view(snapshot):
     lines = [f"OKX DEMO snapshot {snapshot['generated_at']} | {snapshot['guardrails']['status']}"]
+    for kl in (snapshot.get("guardrails") or {}).get("kill") or []:
+        lines.append("KILL: " + kl)
     for inst, data in snapshot["instruments"].items():
         if not data:
             lines.append(f"{inst}: unavailable")

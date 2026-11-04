@@ -20,11 +20,15 @@ def fixture(action=None):
         Path(config.DATA_DIR, name).unlink(missing_ok=True)
     state = {'positions': {}, 'spot': {'longs': {}}, 'last_signal_ts': {}}
     save_state(state)
+    bar_ts = int(NOW.timestamp() * 1000) - 60_000  # ~1m old closed bar
+    instruments = {}
+    for i in ('BTC-USDT', 'BTC-USDT-SWAP'):
+        instruments[i] = {'spec': dict(SPEC, instId=i), 'last': 100., 'mark': 100., 'liquidity_ok': True,
+                          'candles': {'1H': {'bars': [[bar_ts, 100, 100, 100, 100, '1']]}}}
     snapshot = {'snapshot_id': 'test-snapshot', 'generated_at': NOW.isoformat(),
                 'account': {'equity_usdt': 10000, 'avail_usdt': 10000, 'positions': [], 'pending_orders': [], 'pending_algos': []},
                 'guardrails': {'can_open': True},
-                'instruments': {i: {'spec': dict(SPEC, instId=i), 'last': 100., 'mark': 100., 'liquidity_ok': True}
-                                for i in ('BTC-USDT', 'BTC-USDT-SWAP')}}
+                'instruments': instruments}
     path = Path(config.DATA_DIR, 'snapshots', 'test-snapshot.json')
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(snapshot))
@@ -357,7 +361,7 @@ def t_refresh_values_dust_at_snapshot_last_not_avg_px():
                                {'ccy': 'APT', 'cashBal': '0.0000375', 'accAvgPx': '9999999'}]
         return rows
     x.balance = balance
-    x.positions = lambda: [{'instId': 'ETH-USDT-SWAP', 'pos': '-1', 'avgPx': '2400', 'last': '2400', 'markPx': '2400'}]
+    x.positions = lambda: [{'instId': 'ETH-USDT-SWAP', 'pos': '1', 'avgPx': '2400', 'last': '2400', 'markPx': '2400'}]  # long vs plan short: opp-side, no correlation veto
     b = P.make_bot(x)
     out = P.refresh(b, snapshot, plan['actions'][0])
     last = {p['instId']: p['last'] for p in out['account']['positions']}

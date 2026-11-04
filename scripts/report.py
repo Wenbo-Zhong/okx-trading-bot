@@ -5,6 +5,7 @@ import csv, json, os
 from okxbot import config
 from okxbot.okx_client import OKX, OKXError
 from okxbot.bot import load_state, now_local, bot_equity, TRADES_F, EQUITY_F, HALT_F
+from okxbot.risk import kill_status_lines, active_entry_blocks
 
 
 def main():
@@ -44,7 +45,14 @@ def main():
     if st.get("halted") or os.path.exists(HALT_F):
         print("!!! BOT HALTED:", st.get("halt_reason"))
     if st.get("day_locked"):
-        print("!!! Daily loss limit hit: no new trades until tomorrow (UTC+8)")
+        print(f"!!! Daily loss limit hit ({config.DAILY_LOSS_LIMIT:.0%} of day-start): no new trades until tomorrow (UTC+8)")
+    for line in kill_status_lines(st):
+        print("!!! KILL:", line)
+    blocks = active_entry_blocks(st)
+    if blocks:
+        print("can_open=false:", "; ".join(blocks))
+    else:
+        print("can_open=true (no kill/entry pauses)")
     print(f"\nOpen positions ({len(positions)}/{config.MAX_POSITIONS}):")
     if not positions:
         print("  none")

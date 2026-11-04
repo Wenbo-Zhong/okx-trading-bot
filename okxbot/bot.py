@@ -5,7 +5,7 @@ from okxbot import config
 from okxbot.okx_client import OKX, OKXError
 from okxbot.indicators import to_df
 from okxbot.strategy import build_features, initial_stop_tp, update_stop, should_exit_on_trend
-from okxbot.risk import size_position, guardrail_status
+from okxbot.risk import size_position, guardrail_status, note_strategy_close, kill_status_lines
 from okxbot import news
 from okxbot.spot import SpotManager
 from okxbot import events as macro_events
@@ -495,6 +495,12 @@ class Bot:
                          fee=hh.get("fee"), funding=hh.get("fundingFee"), close_type=hh.get("type"),
                          close_time_ms=int(hh.get("uTime") or 0) or None, last_stop=rec.get("stop"), tp=rec.get("tp"),
                          init_stop=rec.get("init_stop"))
+                pause = note_strategy_close(st, pnl if pnl not in ("", None) else hh.get("realizedPnl"),
+                                            intent=rec.get("intent") or rec.get("signal") or "planner")
+                if pause:
+                    save_state(st)
+                    J.record("kill", kind=pause["kind"], reason=pause["reason"], until=pause["until"],
+                             instId=inst_id, realized_pnl=pnl)
 
         self.log["equity"] = equity
         if st.get("start_equity") is None:
@@ -511,7 +517,8 @@ class Bot:
             st["peak_equity"] = equity
         can_open, must_flatten, why = guardrail_status(st, equity)
         self.ev("guardrails", equity=round(equity, 2), peak=round(st["peak_equity"], 2),
-                day_start=round(st["day_start_equity"], 2), can_open=can_open, status=why)
+                day_start=round(st["day_start_equity"], 2), can_open=can_open, status=why,
+                kill=kill_status_lines(st), must_flatten=must_flatten)
         if st.get("halted"):
             open(HALT_F, "w").write(st.get("halt_reason", "") + "\n")
 

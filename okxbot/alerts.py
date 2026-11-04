@@ -7,6 +7,7 @@ import requests
 from okxbot import config
 from okxbot import events as macro_events
 from okxbot import funding
+from okxbot.risk import kill_status_lines, active_entry_blocks
 
 STATE_F = os.path.join(config.DATA_DIR, "alerts_state.json")
 LAST_F = os.path.join(config.DATA_DIR, "alerts.json")
@@ -114,6 +115,14 @@ def build(st, positions, news_high_impact=None, funding_rates=None, now=None):
     for h in news_high_impact or []:
         out.append({"key": "news:" + h["title"][:80], "type": "news", "cooldown_h": 24,
                     "msg": f"HIGH-IMPACT NEWS ({h['why']}; {h['age_h']}h ago, {h['src']}): {h['title']} -> new longs blocked"})
+    # 5. kill switch / entry pauses (soft: block opens; hard halt/day_lock already elsewhere)
+    for line in kill_status_lines(st):
+        out.append({"key": "kill:" + line[:100], "type": "kill", "cooldown_h": 1,
+                    "msg": "KILL / entry pause: " + line})
+    blocks = active_entry_blocks(st)
+    if blocks:
+        out.append({"key": "can_open:false:" + ";".join(blocks)[:80], "type": "kill", "cooldown_h": 1,
+                    "msg": "can_open=false: " + "; ".join(blocks)})
     return dedupe(out, now)
 
 

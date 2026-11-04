@@ -20,7 +20,7 @@ MM_GLITCH_MAX_HOLD_MIN = 15      # maintenance closes mm_glitch positions older 
 MM_GLITCH_REGIME_MAX_AGE_S = 1800  # plan must reference a regime confirmed within this window
 MAX_MARGIN_PCT = 0.20            # max 20% of equity as margin per position
 MAX_POSITIONS = 3                # max concurrent positions
-DAILY_LOSS_LIMIT = 0.10          # -10% vs day-start equity -> no new trades today, flatten
+DAILY_LOSS_LIMIT = 0.02          # -2% vs day-start equity -> flatten + no new trades today (UTC+8); was 10%
 MAX_DRAWDOWN = 0.40              # -40% from peak equity -> halt + flag (manual reset)
 UNIVERSE_SIZE = 30               # only top-N crypto USDT perps by 24h USDT volume
 EXCLUDE_BASE = {"USDC", "USDE", "DAI", "FDUSD", "TUSD", "PYUSD", "USDG", "RLUSD", "XAUT", "PAXG"}  # stablecoins / gold tokens
@@ -176,3 +176,20 @@ RANGE_PNL_FETCH_TRIES = 3        # positions-history attempts (1 s apart) to con
 RANGE_FLATTEN_RETRY_S = 120      # scripts/range_trade keeps retrying an unconfirmed flatten this long, then
                                  # leaves the exchange stop + monitor max-hold enforcement as the backstop
 MM_GLITCH_MONITOR_ENFORCE = True # monitor closes mm_glitch/range positions past max_hold_until (needs DEMO keys)
+
+# ---- Kill switch / risk gate (2026-11-04; DEMO planner safety) ----
+# Daily loss limit above is 2% (was 10%). Max drawdown halt stays at 40%.
+KILL_CONSEC_LOSSES = 3              # consecutive losing closed strategy trades -> pause new entries
+KILL_CONSEC_PAUSE_H = 24            # pause length in hours (Asia/Shanghai clock wall time)
+KILL_ENTRY_SLIP_PCT = 0.005         # >0.5% fill vs planned entry, or current vs plan entry -> no chase / pause
+KILL_STALE_DATA_S = 900             # refuse new entries if instrument last candle/ticker older than this (seconds)
+# Correlation groups: same-direction open risk in a group shares one risk budget (units of RISK_PER_TRADE).
+CORRELATION_GROUP_MAX_RISK_UNITS = 1.0
+CORRELATION_GROUPS = {
+    "crypto_majors": ["BTC", "ETH", "SOL", "BNB", "OKB", "XRP", "DOGE", "ADA", "LTC", "BCH", "LINK", "AVAX"],
+    "us_index": ["QQQ", "SPY"],
+    "crude": ["CL", "BZ"],
+    "gold": ["XAU"],
+}
+# Intents that count toward consecutive-loss kill (smoke / manual excluded).
+KILL_STRATEGY_INTENTS = ("trend", "planner", "funding_harvest", "spot_too_thin", "")

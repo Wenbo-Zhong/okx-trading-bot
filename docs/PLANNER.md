@@ -24,7 +24,9 @@ All commands run from the project root. DEMO only (`config.DEMO = True`).
 
 Automatic, every cycle: reconcile positions the exchange closed (SL/TP hits are journaled); recover
 pending order intents by `ordId`/`clOrdId` (spot, planner opens) without resubmitting; account circuit
-breaker (daily loss `DAILY_LOSS_LIMIT`, drawdown `MAX_DRAWDOWN` → flatten all + halt); stop coverage:
+breaker (daily loss `DAILY_LOSS_LIMIT` = 2% of day-start → flatten + lock day; drawdown `MAX_DRAWDOWN` = 40% → flatten + halt);
+soft kill pauses (consecutive losses / entry slippage) set `can_open=false` only — existing positions keep exchange stops;
+stop coverage:
 every position must have an exchange SL covering its full size — a missing/short SL is placed at the
 recorded stop (or, for an unknown position, at the existing exchange stop / a MAX_STOP_PCT fallback);
 partial-fill remainders stay protected; equity log, journal refresh, `ALERTS:` section.
@@ -44,9 +46,11 @@ id/hash), `generated_at` (UTC), `generated_at_local`, `demo`, `account_available
 - `account`: `equity_usdt`, `avail_usdt`, `positions[]` (`instId, market, side, size, avg_px, last, mark,
   upl, lev, margin, liq_px, sl{algoId,trigger}|null, tp{algoId,trigger}|null, state_record`),
   `spot_balances{ccy:{eq,avail}}`, `pending_orders[]`, `pending_algos[]`. `null` without API keys.
-- `guardrails`: `can_open, must_flatten, status, day_start_equity, peak_equity, halted` and the limits
-  `MAX_LEVERAGE, MAX_MARGIN_PCT, MAX_POSITIONS, RISK_PER_TRADE, DAILY_LOSS_LIMIT, MAX_DRAWDOWN,
-  MIN_STOP_PCT, MAX_STOP_PCT`.
+- `guardrails`: `can_open, must_flatten, status, kill[], entry_blocks[], kill_state, day_start_equity,
+  peak_equity, halted` and the limits `MAX_LEVERAGE, MAX_MARGIN_PCT, MAX_POSITIONS, RISK_PER_TRADE,
+  DAILY_LOSS_LIMIT, MAX_DRAWDOWN, MIN_STOP_PCT, MAX_STOP_PCT`, plus kill knobs
+  `KILL_CONSEC_LOSSES, KILL_CONSEC_PAUSE_H, KILL_ENTRY_SLIP_PCT, KILL_STALE_DATA_S,
+  CORRELATION_GROUP_MAX_RISK_UNITS`. See `docs/RISK.md`.
 - `instruments{instId}`: `market, spec{tickSz,lotSz,minSz,ctVal,maxLever}, last, mark, index,
   funding{rate_8h,next_time}, fees{maker,taker,source}, orderbook{bid,ask,spread_bps,
   depth_usdt_within_0.5pct_bid/ask}, candles{"15m","1H","4H","1D":{bars[[ts_ms,o,h,l,c,vol]],
@@ -94,13 +98,16 @@ Actions:
 Validation. Plan level (any failure → nothing executes): schema/required fields; `created_at ≤ now ≤
 valid_until`; validity window ≤ 6 h; snapshot file exists, id matches and is ≤ `PLAN_MAX_SNAPSHOT_AGE_MIN`
 (45) min old (re-checked before every action when executing); `plan_id` not already executed; ≤
-`PLAN_MAX_ACTIONS` (6). `open`: guardrails `can_open` (breaker/daily lock/halt) and no unresolved order
+`PLAN_MAX_ACTIONS` (6). `open`: guardrails `can_open` (breaker/daily lock/halt/soft kill pauses) and no unresolved order
 intent; instrument live and liquidity filter OK; no position/pending order in the same coin across spot
 and swap (also within the plan); `MAX_POSITIONS`; stop on the loss side, distance between `MIN_STOP_PCT`
 and `MAX_STOP_PCT`, non-marketable; TP on the profit side; leverage ≤ `MAX_LEVERAGE` and instrument cap;
 risk ≤ equity × `RISK_PER_TRADE` (spot `SPOT_RISK_PER_TRADE`) — `risk_usdt` above the cap is clamped and
 noted, other size forms above it are rejected; margin ≤ `MAX_MARGIN_PCT`; then exchange/affordability/
-depth clamps and min size. Execution: write-ahead order intent, entry with attached SL/TP, stop coverage
+depth clamps and min size; **then independent `risk_gate.check_open` (APPROVE/VETO)** — stale data,
+no-chase (last vs plan entry > `KILL_ENTRY_SLIP_PCT`), and correlation-group risk budget. `--execute`
+cannot skip the gate; each action row records `risk_gate`. Fill slippage > limit pauses new entries.
+Execution: write-ahead order intent, entry with attached SL/TP, stop coverage
 verified (if the stop cannot be confirmed the position is closed immediately). `close`: tracked position
 must exist; partial closes use actual fills and the remainder keeps a full-size stop. `amend_sl`/`amend_tp`:
 new trigger must be on the right side and not marketable (rejected, not silently clamped), loss
@@ -108,7 +115,7 @@ distance ≤ `MAX_STOP_PCT` from current price; amendment is confirmed on the ex
 
 Result (stdout, one JSON): `plan_id, snapshot_id, mode ("dry_run"|"execute"), valid, plan_errors[],
 actions[{index, action, instId, status ("rejected"|"would_execute"|"executed"|"failed"|"skipped"),
-reasons[], order, result}]` plus the journal fields below. Exit code 0 only if valid and no action
+reasons[], order, result, risk_gate{decision,reasons,details}?}]` plus the journal fields below. Exit code 0 only if valid and no action
 was rejected/failed.
 
 If information is insufficient or the plan expired: do not trade — journal a `--no-trade` decision.

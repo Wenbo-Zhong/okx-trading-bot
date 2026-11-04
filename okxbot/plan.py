@@ -15,7 +15,8 @@ from decimal import Decimal
 from okxbot import config, sizing, journal_log as J
 from okxbot.review import normalize_review
 from okxbot.bot import Bot, clamp_sl_trigger, fmt_px, load_state, save_state
-from okxbot.risk import guardrail_status
+from okxbot.risk import guardrail_status, note_entry_slippage, note_strategy_close, kill_status_lines
+from okxbot import risk_gate
 from okxbot.spot import SpotManager
 
 
@@ -432,6 +433,17 @@ def validate_action(a, snapshot, state, reserved=None):
     if qty < float(spec['minSz']) or qty <= 0:
         raise ValueError('size below minimum after clamps')
     notes += extra
+    # Actual risk after clamps (correlation budget must use sized risk, not raw request).
+    actual_risk = abs(float(entry) - float(stop)) * float(qty) * (float(units) if market == 'swap' else 1.0)
+    # Independent risk gate (kill pauses, no-chase, stale data, correlation). Cannot be skipped.
+    gate = risk_gate.check_open(a, snapshot, state,
+                                reserved_groups=getattr(validate_action, '_reserved_groups', None),
+                                planned_risk_usdt=actual_risk)
+    notes.append('risk_gate:' + gate['decision'])
+    for r in gate['reasons']:
+        notes.append('risk_gate: ' + r)
+    if gate['decision'] == 'VETO':
+        raise ValueError('risk_gate VETO: ' + '; '.join(gate['reasons']))
     body = {'instId': inst, 'tdMode': 'cash' if market == 'spot' else config.TD_MODE,
             'side': 'buy' if side == 1 else 'sell', 'ordType': order_type, 'sz': _pxs(qty)}
     if order_type == 'limit':
@@ -442,6 +454,10 @@ def validate_action(a, snapshot, state, reserved=None):
     if tp is not None:
         attach.update(tpTriggerPx=_pxs(tp), tpOrdPx='-1', tpTriggerPxType='last')
     body['attachAlgoOrds'] = [attach]
+    # Stash planned entry for fill slippage check (limit_px or live last used as planned).
+    body['_planned_entry'] = float(a['entry']) if a.get('entry') is not None else (
+        float(a['limit_px']) if a.get('limit_px') is not None else float(entry))
+    body['_risk_gate'] = gate
     return body, notes
 
 
@@ -631,6 +647,14 @@ def finish_open(b, pending):
         J.record('open', trade_id=pending['ordId'], instId=inst, market=a['market'], side=a['side'],
              entry=px, size=qty, ct_val=units, lev=a.get('leverage', 1), init_stop=stop, tp=tp,
              planned_risk_usdt=abs(px - stop) * qty * units, rationale={'plan_id': pending['plan_id']})
+        planned = pending.get('body', {}).get('_planned_entry')
+        if planned is None:
+            planned = a.get('entry') or a.get('limit_px')
+        pause = note_entry_slippage(b.st, planned, px, inst_id=inst)
+        if pause:
+            save_state(b.st)
+            J.record('kill', kind='entry_slippage', instId=inst, reason=pause['reason'],
+                     planned=planned, fill=px, slip=pause.get('slip'))
     if spot:
         try:
             b.spot.protect_long(inst)
@@ -667,6 +691,12 @@ def execute_action(b, a, order, plan_id):
     rec = position(b.st, inst)
     if kind == 'open':
         body = copy.deepcopy(order)
+        # Private planner fields must never reach OKX place_order.
+        planned_entry = body.pop('_planned_entry', None)
+        body.pop('_risk_gate', None)
+        for k in list(body):
+            if str(k).startswith('_'):
+                body.pop(k, None)
         body['clOrdId'] = 'botp' + uuid.uuid4().hex[:24]
         side = 1 if a['side'] == 'long' else -1
         if a['market'] == 'swap':
@@ -687,7 +717,13 @@ def execute_action(b, a, order, plan_id):
         order.update(body)
         if a.get('signal') == 'mm_glitch':
             mm_mark_regime_used(a['regime_id'])   # write-ahead: the regime is spent even if the order fails
-        pending = {'body': body, 'action': a, 'spec': b.instr[inst], 'plan_id': plan_id}
+        pending = {'body': {k: v for k, v in body.items() if not str(k).startswith('_')},
+                   'action': a, 'spec': b.instr[inst], 'plan_id': plan_id}
+        if planned_entry is not None:
+            pending['body']['_planned_entry'] = float(planned_entry)  # finish_open only; stripped before API
+        # API body is the clean copy without private keys
+        api_body = {k: v for k, v in body.items() if not str(k).startswith('_')}
+        body = api_body
         b.st.setdefault('plan_pending', {})[body['clOrdId']] = pending
         save_state(b.st)  # write-ahead intent, including for swap and limit orders
         try:
@@ -728,6 +764,10 @@ def execute_action(b, a, order, plan_id):
         save_state(b.st)
         J.record('close', instId=inst, trade_id=rec.get('trade_id'), execution_id=f"{res['ordId']}:{filled:g}",
                  size=filled, remaining=rec['contracts'], exit=float(row.get('avgPx') or 0), reason=a['reason'])
+        # Full closes: consecutive-loss kill uses exchange realized when available; planner market close
+        # may not have realized yet — skip unless fraction closes out and we have a pnl hint.
+        if not rec['contracts']:
+            pass  # streak updated on maintain reconcile via positions-history
         if rec['contracts']:
             if b.ensure_sl_coverage(inst, side, rec['contracts'], rec['stop'], b.pos_side(side),
                                     float(b.instr[inst]['lotSz'])) is None:
@@ -803,11 +843,13 @@ def run_plan(plan, execute=False, snapshot_path=None, client=None, now=None, loc
             if execute and not errors:
                 journal_decision({**result, 'claimed': True})
             reserved = set()
+            reserved_groups = {}  # (group, side) -> risk already reserved in this plan
+            validate_action._reserved_groups = reserved_groups
             actions = plan.get('actions', []) if isinstance(plan, dict) else []
             for index, a in enumerate(actions if isinstance(actions, list) else []):
                 row = {'index': index, 'action': a.get('action') if isinstance(a, dict) and isinstance(a.get('action'), str) else None,
                        'instId': a.get('instId') if isinstance(a, dict) and isinstance(a.get('instId'), str) else None,
-                       'status': 'rejected', 'reasons': [], 'order': None, 'result': None}
+                       'status': 'rejected', 'reasons': [], 'order': None, 'result': None, 'risk_gate': None}
                 if isinstance(a, dict) and a.get('signal'):
                     row.update(signal=a.get('signal'), regime_id=a.get('regime_id'))
                 result['actions'].append(row)
@@ -824,12 +866,46 @@ def run_plan(plan, execute=False, snapshot_path=None, client=None, now=None, loc
                         if current_time - timestamp(snapshot['generated_at']) > dt.timedelta(minutes=config.PLAN_MAX_SNAPSHOT_AGE_MIN):
                             raise ValueError('snapshot stale before action')
                     order, notes = validate_action(a, current, state, reserved)
+                    planned_entry = None
+                    gate = None
+                    if isinstance(order, dict):
+                        planned_entry = order.pop('_planned_entry', None)
+                        gate = order.pop('_risk_gate', None)
+                        for k in [k for k in order if str(k).startswith('_')]:
+                            order.pop(k, None)
+                    if gate is not None:
+                        # Journal-friendly (no non-serializable bits)
+                        row['risk_gate'] = {
+                            'decision': gate.get('decision'),
+                            'reasons': list(gate.get('reasons') or []),
+                            'details': gate.get('details') or {},
+                        }
                     row.update(order=order, reasons=notes)
                 except Exception as e:
                     row['reasons'].append(str(e))
+                    if str(e).startswith('risk_gate VETO'):
+                        row['risk_gate'] = {'decision': 'VETO', 'reasons': [str(e)]}
                     continue
                 if a['action'] == 'open':
                     reserved.add(a['instId'].split('-')[0])
+                    # Reserve correlation budget for later opens in this same plan
+                    g = row.get('risk_gate') or {}
+                    details = g.get('details') or {}
+                    if g.get('decision') == 'APPROVE':
+                        grp = details.get('correlation_group') or risk_gate.correlation_group(a['instId'])
+                        side_i = 1 if a.get('side') == 'long' else -1
+                        reserved_groups[(grp, side_i)] = reserved_groups.get((grp, side_i), 0) + float(
+                            details.get('new_risk_usdt') or 0)
+                    # Keep planned entry on the order object for execute_action / finish_open
+                    if order is not None:
+                        if planned_entry is not None:
+                            order['_planned_entry'] = float(planned_entry)
+                        else:
+                            pe = a.get('entry') if a.get('entry') is not None else a.get('limit_px')
+                            if pe is not None:
+                                order['_planned_entry'] = float(pe)
+                            elif details.get('last') is not None:
+                                order['_planned_entry'] = float(details['last'])
                 if not execute:
                     row['status'] = 'would_execute'
                     continue

@@ -1,0 +1,1709 @@
+{
+  "coverage": {
+    "BTC-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "ETH-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "SOL-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "BNB-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "OKB-USDT-SWAP": {
+      "bars": 10235,
+      "start": "2025-09-04T02:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 426.4
+    },
+    "XRP-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "DOGE-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "LINK-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "AVAX-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "SUI-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "AAVE-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "WLD-USDT-SWAP": {
+      "bars": 17519,
+      "start": "2024-11-04T14:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 729.9
+    },
+    "QQQ-USDT-SWAP": {
+      "bars": 5885,
+      "start": "2026-03-04T08:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 245.2
+    },
+    "SPY-USDT-SWAP": {
+      "bars": 5884,
+      "start": "2026-03-04T09:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 245.1
+    },
+    "XAU-USDT-SWAP": {
+      "bars": 13779,
+      "start": "2025-04-09T10:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 574.1
+    },
+    "CL-USDT-SWAP": {
+      "bars": 5881,
+      "start": "2026-03-04T12:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 245.0
+    },
+    "BZ-USDT-SWAP": {
+      "bars": 5403,
+      "start": "2026-03-24T10:00:00+00:00",
+      "end": "2026-11-04T12:00:00+00:00",
+      "days": 225.1
+    }
+  },
+  "diagnosis": {
+    "instrument_bars": 234676,
+    "c7_signal_bars": 15656,
+    "c7_pct_of_bars": 6.671,
+    "daily_hard_would_block": 7294,
+    "daily_hard_block_pct_of_c7": 46.6,
+    "flat_1h_trend_pct_bars": 13.6
+  },
+  "runs": {
+    "crypto12": {
+      "C7_baseline": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 12064.25,
+          "return_pct": 20.64,
+          "max_dd_pct": 15.98,
+          "trades": 951,
+          "trades_per_week": 13.92,
+          "win_rate_pct": 47.5,
+          "profit_factor": 1.08,
+          "expectancy_R": 0.046,
+          "sharpe_approx": 0.78,
+          "avg_win": 63.43,
+          "avg_loss": -53.33,
+          "exit_reasons": {
+            "tp": 220,
+            "stop": 708,
+            "daily_limit": 13,
+            "trend_flip": 8,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 6511,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9974.1,
+          "return_pct": -0.26,
+          "max_dd_pct": 13.92,
+          "trades": 508,
+          "trades_per_week": 14.87,
+          "win_rate_pct": 47.4,
+          "profit_factor": 1.0,
+          "expectancy_R": 0.005,
+          "sharpe_approx": 0.08,
+          "avg_win": 51.86,
+          "avg_loss": -46.91,
+          "exit_reasons": {
+            "stop": 392,
+            "tp": 101,
+            "trend_flip": 3,
+            "daily_limit": 11,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 2906,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 12049.62,
+          "return_pct": 20.5,
+          "max_dd_pct": 18.73,
+          "trades": 1456,
+          "trades_per_week": 14.21,
+          "win_rate_pct": 47.5,
+          "profit_factor": 1.05,
+          "expectancy_R": 0.032,
+          "sharpe_approx": 0.55,
+          "avg_win": 63.22,
+          "avg_loss": -54.58,
+          "exit_reasons": {
+            "tp": 321,
+            "stop": 1099,
+            "daily_limit": 24,
+            "trend_flip": 11,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 9420,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 37,
+          "BTC-USDT-SWAP": 43,
+          "WLD-USDT-SWAP": 46,
+          "BNB-USDT-SWAP": 49,
+          "SOL-USDT-SWAP": 42,
+          "SUI-USDT-SWAP": 39,
+          "ETH-USDT-SWAP": 42,
+          "OKB-USDT-SWAP": 39,
+          "AAVE-USDT-SWAP": 64,
+          "XRP-USDT-SWAP": 40,
+          "LINK-USDT-SWAP": 36,
+          "DOGE-USDT-SWAP": 31
+        }
+      },
+      "C7_daily_hard": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10710.31,
+          "return_pct": 7.1,
+          "max_dd_pct": 17.91,
+          "trades": 577,
+          "trades_per_week": 8.45,
+          "win_rate_pct": 48.7,
+          "profit_factor": 1.05,
+          "expectancy_R": 0.031,
+          "sharpe_approx": 0.37,
+          "avg_win": 54.01,
+          "avg_loss": -48.87,
+          "exit_reasons": {
+            "stop": 444,
+            "tp": 121,
+            "trend_flip": 8,
+            "daily_limit": 4
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 3674,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9007.55,
+          "return_pct": -9.92,
+          "max_dd_pct": 14.64,
+          "trades": 293,
+          "trades_per_week": 8.58,
+          "win_rate_pct": 45.7,
+          "profit_factor": 0.86,
+          "expectancy_R": -0.065,
+          "sharpe_approx": -0.8,
+          "avg_win": 47.41,
+          "avg_loss": -46.21,
+          "exit_reasons": {
+            "stop": 234,
+            "tp": 48,
+            "daily_limit": 6,
+            "trend_flip": 4,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1374,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9647.37,
+          "return_pct": -3.53,
+          "max_dd_pct": 17.91,
+          "trades": 870,
+          "trades_per_week": 8.49,
+          "win_rate_pct": 47.7,
+          "profit_factor": 0.98,
+          "expectancy_R": -0.001,
+          "sharpe_approx": -0.01,
+          "avg_win": 52.97,
+          "avg_loss": -49.09,
+          "exit_reasons": {
+            "stop": 678,
+            "tp": 169,
+            "trend_flip": 12,
+            "daily_limit": 10,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 5048,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AAVE-USDT-SWAP": 38,
+          "WLD-USDT-SWAP": 34,
+          "OKB-USDT-SWAP": 15,
+          "SUI-USDT-SWAP": 30,
+          "BNB-USDT-SWAP": 17,
+          "XRP-USDT-SWAP": 29,
+          "BTC-USDT-SWAP": 16,
+          "AVAX-USDT-SWAP": 33,
+          "LINK-USDT-SWAP": 17,
+          "SOL-USDT-SWAP": 19,
+          "DOGE-USDT-SWAP": 24,
+          "ETH-USDT-SWAP": 21
+        }
+      },
+      "C7_soft_daily": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 11340.65,
+          "return_pct": 13.41,
+          "max_dd_pct": 11.5,
+          "trades": 949,
+          "trades_per_week": 13.89,
+          "win_rate_pct": 47.5,
+          "profit_factor": 1.07,
+          "expectancy_R": 0.041,
+          "sharpe_approx": 0.63,
+          "avg_win": 43.14,
+          "avg_loss": -36.38,
+          "exit_reasons": {
+            "tp": 220,
+            "stop": 716,
+            "trend_flip": 9,
+            "daily_limit": 2,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 6537,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9331.65,
+          "return_pct": -6.68,
+          "max_dd_pct": 13.48,
+          "trades": 508,
+          "trades_per_week": 14.87,
+          "win_rate_pct": 46.9,
+          "profit_factor": 0.93,
+          "expectancy_R": -0.005,
+          "sharpe_approx": -0.56,
+          "avg_win": 34.9,
+          "avg_loss": -33.24,
+          "exit_reasons": {
+            "stop": 399,
+            "tp": 99,
+            "trend_flip": 3,
+            "daily_limit": 6,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 2923,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 10621.29,
+          "return_pct": 6.21,
+          "max_dd_pct": 14.76,
+          "trades": 1454,
+          "trades_per_week": 14.19,
+          "win_rate_pct": 47.3,
+          "profit_factor": 1.02,
+          "expectancy_R": 0.025,
+          "sharpe_approx": 0.26,
+          "avg_win": 42.01,
+          "avg_loss": -36.92,
+          "exit_reasons": {
+            "tp": 319,
+            "stop": 1114,
+            "trend_flip": 12,
+            "daily_limit": 8,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 9463,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 36,
+          "BTC-USDT-SWAP": 45,
+          "WLD-USDT-SWAP": 46,
+          "BNB-USDT-SWAP": 47,
+          "SOL-USDT-SWAP": 42,
+          "SUI-USDT-SWAP": 40,
+          "ETH-USDT-SWAP": 44,
+          "OKB-USDT-SWAP": 34,
+          "AAVE-USDT-SWAP": 65,
+          "XRP-USDT-SWAP": 41,
+          "LINK-USDT-SWAP": 36,
+          "DOGE-USDT-SWAP": 32
+        }
+      },
+      "pullback_retest": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 11242.4,
+          "return_pct": 12.42,
+          "max_dd_pct": 10.14,
+          "trades": 1027,
+          "trades_per_week": 15.03,
+          "win_rate_pct": 47.6,
+          "profit_factor": 1.07,
+          "expectancy_R": 0.024,
+          "sharpe_approx": 0.63,
+          "avg_win": 40.94,
+          "avg_loss": -34.91,
+          "exit_reasons": {
+            "stop": 658,
+            "tp": 349,
+            "trend_flip": 14,
+            "daily_limit": 3,
+            "end": 3
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 4454,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 10544.03,
+          "return_pct": 5.44,
+          "max_dd_pct": 11.88,
+          "trades": 489,
+          "trades_per_week": 14.32,
+          "win_rate_pct": 49.5,
+          "profit_factor": 1.06,
+          "expectancy_R": 0.046,
+          "sharpe_approx": 0.59,
+          "avg_win": 39.3,
+          "avg_loss": -36.3,
+          "exit_reasons": {
+            "tp": 182,
+            "stop": 296,
+            "daily_limit": 1,
+            "trend_flip": 9,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 2106,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 11873.5,
+          "return_pct": 18.74,
+          "max_dd_pct": 11.88,
+          "trades": 1513,
+          "trades_per_week": 14.76,
+          "win_rate_pct": 48.2,
+          "profit_factor": 1.06,
+          "expectancy_R": 0.031,
+          "sharpe_approx": 0.62,
+          "avg_win": 42.07,
+          "avg_loss": -36.83,
+          "exit_reasons": {
+            "stop": 954,
+            "tp": 531,
+            "trend_flip": 23,
+            "daily_limit": 4,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 6560,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 42,
+          "BTC-USDT-SWAP": 44,
+          "AAVE-USDT-SWAP": 45,
+          "BNB-USDT-SWAP": 49,
+          "DOGE-USDT-SWAP": 25,
+          "SUI-USDT-SWAP": 48,
+          "ETH-USDT-SWAP": 36,
+          "SOL-USDT-SWAP": 35,
+          "WLD-USDT-SWAP": 50,
+          "XRP-USDT-SWAP": 47,
+          "OKB-USDT-SWAP": 39,
+          "LINK-USDT-SWAP": 29
+        }
+      },
+      "regime_switch": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 11850.6,
+          "return_pct": 18.51,
+          "max_dd_pct": 11.65,
+          "trades": 1003,
+          "trades_per_week": 14.68,
+          "win_rate_pct": 46.9,
+          "profit_factor": 1.1,
+          "expectancy_R": 0.046,
+          "sharpe_approx": 0.91,
+          "avg_win": 41.89,
+          "avg_loss": -33.47,
+          "exit_reasons": {
+            "stop": 591,
+            "tp": 237,
+            "trend_flip": 171,
+            "daily_limit": 3,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 4186,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9597.26,
+          "return_pct": -4.03,
+          "max_dd_pct": 14.36,
+          "trades": 531,
+          "trades_per_week": 15.55,
+          "win_rate_pct": 47.5,
+          "profit_factor": 0.95,
+          "expectancy_R": -0.012,
+          "sharpe_approx": -0.33,
+          "avg_win": 33.45,
+          "avg_loss": -31.66,
+          "exit_reasons": {
+            "stop": 354,
+            "trend_flip": 68,
+            "tp": 105,
+            "daily_limit": 2,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1967,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 11390.93,
+          "return_pct": 13.91,
+          "max_dd_pct": 14.36,
+          "trades": 1532,
+          "trades_per_week": 14.95,
+          "win_rate_pct": 47.1,
+          "profit_factor": 1.05,
+          "expectancy_R": 0.026,
+          "sharpe_approx": 0.5,
+          "avg_win": 41.16,
+          "avg_loss": -34.89,
+          "exit_reasons": {
+            "stop": 944,
+            "tp": 342,
+            "trend_flip": 239,
+            "daily_limit": 5,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 6155,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 32,
+          "BTC-USDT-SWAP": 46,
+          "WLD-USDT-SWAP": 51,
+          "DOGE-USDT-SWAP": 50,
+          "BNB-USDT-SWAP": 49,
+          "SUI-USDT-SWAP": 41,
+          "ETH-USDT-SWAP": 47,
+          "SOL-USDT-SWAP": 36,
+          "XRP-USDT-SWAP": 44,
+          "OKB-USDT-SWAP": 42,
+          "AAVE-USDT-SWAP": 57,
+          "LINK-USDT-SWAP": 36
+        }
+      },
+      "mtf_momentum": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 8556.99,
+          "return_pct": -14.43,
+          "max_dd_pct": 25.85,
+          "trades": 750,
+          "trades_per_week": 10.98,
+          "win_rate_pct": 39.1,
+          "profit_factor": 0.88,
+          "expectancy_R": -0.037,
+          "sharpe_approx": -0.67,
+          "avg_win": 37.17,
+          "avg_loss": -26.99,
+          "exit_reasons": {
+            "trend_flip": 294,
+            "stop": 349,
+            "tp": 92,
+            "daily_limit": 14,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1526,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9880.76,
+          "return_pct": -1.19,
+          "max_dd_pct": 12.51,
+          "trades": 394,
+          "trades_per_week": 11.54,
+          "win_rate_pct": 38.6,
+          "profit_factor": 0.98,
+          "expectancy_R": -0.002,
+          "sharpe_approx": -0.03,
+          "avg_win": 44.41,
+          "avg_loss": -28.39,
+          "exit_reasons": {
+            "trend_flip": 162,
+            "stop": 175,
+            "tp": 53,
+            "daily_limit": 4
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 755,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 8438.44,
+          "return_pct": -15.62,
+          "max_dd_pct": 26.27,
+          "trades": 1144,
+          "trades_per_week": 11.16,
+          "win_rate_pct": 38.9,
+          "profit_factor": 0.91,
+          "expectancy_R": -0.025,
+          "sharpe_approx": -0.46,
+          "avg_win": 37.43,
+          "avg_loss": -26.06,
+          "exit_reasons": {
+            "trend_flip": 456,
+            "stop": 525,
+            "tp": 145,
+            "daily_limit": 18
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 2281,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "OKB-USDT-SWAP": 71,
+          "WLD-USDT-SWAP": 41,
+          "AAVE-USDT-SWAP": 47,
+          "LINK-USDT-SWAP": 42,
+          "DOGE-USDT-SWAP": 40,
+          "SOL-USDT-SWAP": 52,
+          "AVAX-USDT-SWAP": 45,
+          "BNB-USDT-SWAP": 56
+        }
+      }
+    },
+    "tradfi5": {
+      "C7_baseline": {
+        "window": {
+          "is_from": "2025-04-21T22:00:00+00:00",
+          "is_to": "2026-05-01T08:00:00+00:00",
+          "oos_from": "2026-05-01T08:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10166.72,
+          "return_pct": 1.67,
+          "max_dd_pct": 5.74,
+          "trades": 260,
+          "trades_per_week": 4.86,
+          "win_rate_pct": 48.5,
+          "profit_factor": 1.05,
+          "expectancy_R": 0.026,
+          "sharpe_approx": 0.34,
+          "avg_win": 26.67,
+          "avg_loss": -23.88,
+          "exit_reasons": {
+            "stop": 198,
+            "trend_flip": 4,
+            "tp": 55,
+            "end": 3
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 366,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 8656.09,
+          "return_pct": -13.44,
+          "max_dd_pct": 13.9,
+          "trades": 338,
+          "trades_per_week": 12.64,
+          "win_rate_pct": 42.0,
+          "profit_factor": 0.72,
+          "expectancy_R": -0.168,
+          "sharpe_approx": -3.11,
+          "avg_win": 24.82,
+          "avg_loss": -24.85,
+          "exit_reasons": {
+            "stop": 272,
+            "tp": 60,
+            "trend_flip": 4,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 731,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 8833.26,
+          "return_pct": -11.67,
+          "max_dd_pct": 15.35,
+          "trades": 596,
+          "trades_per_week": 7.43,
+          "win_rate_pct": 44.8,
+          "profit_factor": 0.86,
+          "expectancy_R": -0.081,
+          "sharpe_approx": -1.17,
+          "avg_win": 26.11,
+          "avg_loss": -24.74,
+          "exit_reasons": {
+            "stop": 471,
+            "trend_flip": 8,
+            "tp": 115,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1094,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "XAU-USDT-SWAP": 63,
+          "SPY-USDT-SWAP": 67,
+          "QQQ-USDT-SWAP": 80,
+          "BZ-USDT-SWAP": 61,
+          "CL-USDT-SWAP": 67
+        }
+      },
+      "C7_daily_hard": {
+        "window": {
+          "is_from": "2025-04-21T22:00:00+00:00",
+          "is_to": "2026-05-01T08:00:00+00:00",
+          "oos_from": "2026-05-01T08:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10036.69,
+          "return_pct": 0.37,
+          "max_dd_pct": 4.98,
+          "trades": 110,
+          "trades_per_week": 2.06,
+          "win_rate_pct": 48.2,
+          "profit_factor": 1.03,
+          "expectancy_R": 0.014,
+          "sharpe_approx": 0.12,
+          "avg_win": 24.85,
+          "avg_loss": -22.5,
+          "exit_reasons": {
+            "stop": 86,
+            "tp": 21,
+            "trend_flip": 2,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 148,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9280.98,
+          "return_pct": -7.19,
+          "max_dd_pct": 8.06,
+          "trades": 221,
+          "trades_per_week": 8.27,
+          "win_rate_pct": 43.9,
+          "profit_factor": 0.78,
+          "expectancy_R": -0.132,
+          "sharpe_approx": -1.81,
+          "avg_win": 25.72,
+          "avg_loss": -25.92,
+          "exit_reasons": {
+            "stop": 175,
+            "tp": 43,
+            "trend_flip": 3
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 328,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9303.74,
+          "return_pct": -6.96,
+          "max_dd_pct": 8.06,
+          "trades": 330,
+          "trades_per_week": 4.11,
+          "win_rate_pct": 45.2,
+          "profit_factor": 0.85,
+          "expectancy_R": -0.085,
+          "sharpe_approx": -0.83,
+          "avg_win": 25.56,
+          "avg_loss": -24.89,
+          "exit_reasons": {
+            "stop": 261,
+            "tp": 64,
+            "trend_flip": 5
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 475,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "XAU-USDT-SWAP": 53,
+          "BZ-USDT-SWAP": 45,
+          "CL-USDT-SWAP": 48,
+          "QQQ-USDT-SWAP": 39,
+          "SPY-USDT-SWAP": 36
+        }
+      },
+      "C7_soft_daily": {
+        "window": {
+          "is_from": "2025-04-21T22:00:00+00:00",
+          "is_to": "2026-05-01T08:00:00+00:00",
+          "oos_from": "2026-05-01T08:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10031.24,
+          "return_pct": 0.31,
+          "max_dd_pct": 4.39,
+          "trades": 260,
+          "trades_per_week": 4.86,
+          "win_rate_pct": 48.8,
+          "profit_factor": 1.01,
+          "expectancy_R": 0.038,
+          "sharpe_approx": 0.1,
+          "avg_win": 16.18,
+          "avg_loss": -15.24,
+          "exit_reasons": {
+            "stop": 197,
+            "trend_flip": 4,
+            "tp": 56,
+            "end": 3
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 366,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9190.66,
+          "return_pct": -8.09,
+          "max_dd_pct": 8.4,
+          "trades": 338,
+          "trades_per_week": 12.64,
+          "win_rate_pct": 42.0,
+          "profit_factor": 0.78,
+          "expectancy_R": -0.168,
+          "sharpe_approx": -2.25,
+          "avg_win": 19.73,
+          "avg_loss": -18.43,
+          "exit_reasons": {
+            "stop": 272,
+            "tp": 60,
+            "trend_flip": 4,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 731,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9226.35,
+          "return_pct": -7.74,
+          "max_dd_pct": 8.52,
+          "trades": 596,
+          "trades_per_week": 7.43,
+          "win_rate_pct": 45.0,
+          "profit_factor": 0.86,
+          "expectancy_R": -0.076,
+          "sharpe_approx": -0.99,
+          "avg_win": 18.16,
+          "avg_loss": -17.2,
+          "exit_reasons": {
+            "stop": 470,
+            "trend_flip": 8,
+            "tp": 116,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1094,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "XAU-USDT-SWAP": 63,
+          "SPY-USDT-SWAP": 67,
+          "QQQ-USDT-SWAP": 80,
+          "BZ-USDT-SWAP": 61,
+          "CL-USDT-SWAP": 67
+        }
+      },
+      "pullback_retest": {
+        "window": {
+          "is_from": "2025-04-21T22:00:00+00:00",
+          "is_to": "2026-05-01T08:00:00+00:00",
+          "oos_from": "2026-05-01T08:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 9915.19,
+          "return_pct": -0.85,
+          "max_dd_pct": 3.65,
+          "trades": 256,
+          "trades_per_week": 4.79,
+          "win_rate_pct": 49.6,
+          "profit_factor": 0.96,
+          "expectancy_R": -0.009,
+          "sharpe_approx": -0.23,
+          "avg_win": 15.28,
+          "avg_loss": -15.71,
+          "exit_reasons": {
+            "stop": 164,
+            "trend_flip": 4,
+            "tp": 86,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 312,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9222.54,
+          "return_pct": -7.77,
+          "max_dd_pct": 8.78,
+          "trades": 357,
+          "trades_per_week": 13.35,
+          "win_rate_pct": 44.5,
+          "profit_factor": 0.78,
+          "expectancy_R": -0.117,
+          "sharpe_approx": -2.31,
+          "avg_win": 17.39,
+          "avg_loss": -17.89,
+          "exit_reasons": {
+            "stop": 241,
+            "tp": 109,
+            "trend_flip": 5,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 572,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9147.24,
+          "return_pct": -8.53,
+          "max_dd_pct": 9.31,
+          "trades": 611,
+          "trades_per_week": 7.62,
+          "win_rate_pct": 46.5,
+          "profit_factor": 0.85,
+          "expectancy_R": -0.073,
+          "sharpe_approx": -1.2,
+          "avg_win": 16.45,
+          "avg_loss": -16.9,
+          "exit_reasons": {
+            "stop": 406,
+            "trend_flip": 9,
+            "tp": 194,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 880,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "XAU-USDT-SWAP": 66,
+          "SPY-USDT-SWAP": 66,
+          "QQQ-USDT-SWAP": 78,
+          "BZ-USDT-SWAP": 74,
+          "CL-USDT-SWAP": 73
+        }
+      },
+      "regime_switch": {
+        "window": {
+          "is_from": "2025-04-21T22:00:00+00:00",
+          "is_to": "2026-05-01T08:00:00+00:00",
+          "oos_from": "2026-05-01T08:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10096.15,
+          "return_pct": 0.96,
+          "max_dd_pct": 3.9,
+          "trades": 204,
+          "trades_per_week": 3.81,
+          "win_rate_pct": 51.5,
+          "profit_factor": 1.06,
+          "expectancy_R": 0.034,
+          "sharpe_approx": 0.31,
+          "avg_win": 15.41,
+          "avg_loss": -15.4,
+          "exit_reasons": {
+            "stop": 147,
+            "trend_flip": 11,
+            "tp": 44,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 248,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9297.18,
+          "return_pct": -7.03,
+          "max_dd_pct": 7.66,
+          "trades": 312,
+          "trades_per_week": 11.67,
+          "win_rate_pct": 44.6,
+          "profit_factor": 0.78,
+          "expectancy_R": -0.127,
+          "sharpe_approx": -2.07,
+          "avg_win": 17.83,
+          "avg_loss": -18.39,
+          "exit_reasons": {
+            "stop": 234,
+            "tp": 54,
+            "trend_flip": 22,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 551,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9425.0,
+          "return_pct": -5.75,
+          "max_dd_pct": 7.66,
+          "trades": 515,
+          "trades_per_week": 6.42,
+          "win_rate_pct": 47.6,
+          "profit_factor": 0.88,
+          "expectancy_R": -0.057,
+          "sharpe_approx": -0.8,
+          "avg_win": 16.91,
+          "avg_loss": -17.48,
+          "exit_reasons": {
+            "stop": 382,
+            "trend_flip": 33,
+            "tp": 98,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 796,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "SPY-USDT-SWAP": 58,
+          "CL-USDT-SWAP": 72,
+          "BZ-USDT-SWAP": 62,
+          "XAU-USDT-SWAP": 56,
+          "QQQ-USDT-SWAP": 64
+        }
+      },
+      "mtf_momentum": {
+        "window": {
+          "is_from": "2025-04-21T22:00:00+00:00",
+          "is_to": "2026-05-01T08:00:00+00:00",
+          "oos_from": "2026-05-01T08:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10036.48,
+          "return_pct": 0.36,
+          "max_dd_pct": 0.83,
+          "trades": 33,
+          "trades_per_week": 0.62,
+          "win_rate_pct": 39.4,
+          "profit_factor": 1.24,
+          "expectancy_R": 0.057,
+          "sharpe_approx": 0.38,
+          "avg_win": 14.58,
+          "avg_loss": -7.65,
+          "exit_reasons": {
+            "stop": 11,
+            "trend_flip": 18,
+            "tp": 4
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 38,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9554.71,
+          "return_pct": -4.45,
+          "max_dd_pct": 5.02,
+          "trades": 149,
+          "trades_per_week": 5.57,
+          "win_rate_pct": 36.2,
+          "profit_factor": 0.54,
+          "expectancy_R": -0.126,
+          "sharpe_approx": -3.16,
+          "avg_win": 9.62,
+          "avg_loss": -10.16,
+          "exit_reasons": {
+            "stop": 72,
+            "trend_flip": 64,
+            "tp": 12,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 149,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9589.56,
+          "return_pct": -4.1,
+          "max_dd_pct": 5.69,
+          "trades": 182,
+          "trades_per_week": 2.27,
+          "win_rate_pct": 36.8,
+          "profit_factor": 0.63,
+          "expectancy_R": -0.093,
+          "sharpe_approx": -1.51,
+          "avg_win": 10.61,
+          "avg_loss": -9.75,
+          "exit_reasons": {
+            "stop": 83,
+            "trend_flip": 82,
+            "tp": 16,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 187,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "CL-USDT-SWAP": 55,
+          "BZ-USDT-SWAP": 40,
+          "QQQ-USDT-SWAP": 54
+        }
+      }
+    },
+    "all_watch": {
+      "C7_baseline": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 12381.04,
+          "return_pct": 23.81,
+          "max_dd_pct": 12.88,
+          "trades": 970,
+          "trades_per_week": 14.2,
+          "win_rate_pct": 48.1,
+          "profit_factor": 1.1,
+          "expectancy_R": 0.055,
+          "sharpe_approx": 0.91,
+          "avg_win": 57.83,
+          "avg_loss": -48.96,
+          "exit_reasons": {
+            "tp": 223,
+            "stop": 717,
+            "daily_limit": 19,
+            "trend_flip": 9,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 7016,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 8967.71,
+          "return_pct": -10.32,
+          "max_dd_pct": 16.08,
+          "trades": 544,
+          "trades_per_week": 15.93,
+          "win_rate_pct": 44.7,
+          "profit_factor": 0.91,
+          "expectancy_R": -0.051,
+          "sharpe_approx": -0.98,
+          "avg_win": 42.67,
+          "avg_loss": -37.88,
+          "exit_reasons": {
+            "stop": 423,
+            "tp": 111,
+            "trend_flip": 3,
+            "daily_limit": 5,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 4905,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 10923.0,
+          "return_pct": 9.23,
+          "max_dd_pct": 17.06,
+          "trades": 1510,
+          "trades_per_week": 14.73,
+          "win_rate_pct": 46.8,
+          "profit_factor": 1.02,
+          "expectancy_R": 0.014,
+          "sharpe_approx": 0.33,
+          "avg_win": 55.7,
+          "avg_loss": -47.89,
+          "exit_reasons": {
+            "tp": 332,
+            "stop": 1140,
+            "daily_limit": 24,
+            "trend_flip": 12,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 11926,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 26,
+          "BTC-USDT-SWAP": 26,
+          "WLD-USDT-SWAP": 31,
+          "BNB-USDT-SWAP": 27,
+          "SOL-USDT-SWAP": 24,
+          "SUI-USDT-SWAP": 20,
+          "XAU-USDT-SWAP": 61,
+          "QQQ-USDT-SWAP": 55,
+          "ETH-USDT-SWAP": 24,
+          "XRP-USDT-SWAP": 21,
+          "AAVE-USDT-SWAP": 35,
+          "SPY-USDT-SWAP": 50,
+          "CL-USDT-SWAP": 40,
+          "OKB-USDT-SWAP": 27,
+          "BZ-USDT-SWAP": 46,
+          "DOGE-USDT-SWAP": 17,
+          "LINK-USDT-SWAP": 14
+        }
+      },
+      "C7_daily_hard": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 10632.74,
+          "return_pct": 6.33,
+          "max_dd_pct": 19.43,
+          "trades": 601,
+          "trades_per_week": 8.8,
+          "win_rate_pct": 47.4,
+          "profit_factor": 1.04,
+          "expectancy_R": 0.015,
+          "sharpe_approx": 0.35,
+          "avg_win": 52.83,
+          "avg_loss": -45.64,
+          "exit_reasons": {
+            "stop": 459,
+            "tp": 126,
+            "trend_flip": 9,
+            "daily_limit": 7
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 3796,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 8956.58,
+          "return_pct": -10.43,
+          "max_dd_pct": 13.55,
+          "trades": 392,
+          "trades_per_week": 11.48,
+          "win_rate_pct": 45.9,
+          "profit_factor": 0.87,
+          "expectancy_R": -0.054,
+          "sharpe_approx": -0.99,
+          "avg_win": 37.87,
+          "avg_loss": -37.08,
+          "exit_reasons": {
+            "stop": 309,
+            "tp": 74,
+            "daily_limit": 3,
+            "trend_flip": 5,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 2179,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 9523.3,
+          "return_pct": -4.77,
+          "max_dd_pct": 19.43,
+          "trades": 993,
+          "trades_per_week": 9.69,
+          "win_rate_pct": 46.8,
+          "profit_factor": 0.98,
+          "expectancy_R": -0.012,
+          "sharpe_approx": -0.05,
+          "avg_win": 47.96,
+          "avg_loss": -43.15,
+          "exit_reasons": {
+            "stop": 768,
+            "tp": 200,
+            "trend_flip": 14,
+            "daily_limit": 10,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 5975,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AAVE-USDT-SWAP": 29,
+          "XAU-USDT-SWAP": 51,
+          "QQQ-USDT-SWAP": 31,
+          "WLD-USDT-SWAP": 29,
+          "SPY-USDT-SWAP": 24,
+          "CL-USDT-SWAP": 39,
+          "OKB-USDT-SWAP": 15,
+          "SUI-USDT-SWAP": 17,
+          "BNB-USDT-SWAP": 14,
+          "SOL-USDT-SWAP": 8,
+          "BZ-USDT-SWAP": 39,
+          "AVAX-USDT-SWAP": 26,
+          "DOGE-USDT-SWAP": 17,
+          "XRP-USDT-SWAP": 15,
+          "LINK-USDT-SWAP": 14,
+          "ETH-USDT-SWAP": 13,
+          "BTC-USDT-SWAP": 11
+        }
+      },
+      "C7_soft_daily": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 11497.94,
+          "return_pct": 14.98,
+          "max_dd_pct": 11.64,
+          "trades": 969,
+          "trades_per_week": 14.18,
+          "win_rate_pct": 47.7,
+          "profit_factor": 1.09,
+          "expectancy_R": 0.044,
+          "sharpe_approx": 0.71,
+          "avg_win": 40.77,
+          "avg_loss": -34.2,
+          "exit_reasons": {
+            "tp": 222,
+            "stop": 727,
+            "trend_flip": 11,
+            "daily_limit": 7,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 7059,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9345.21,
+          "return_pct": -6.55,
+          "max_dd_pct": 12.87,
+          "trades": 542,
+          "trades_per_week": 15.87,
+          "win_rate_pct": 44.8,
+          "profit_factor": 0.92,
+          "expectancy_R": -0.043,
+          "sharpe_approx": -0.76,
+          "avg_win": 30.89,
+          "avg_loss": -27.3,
+          "exit_reasons": {
+            "stop": 426,
+            "tp": 111,
+            "trend_flip": 3,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 4883,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 10632.96,
+          "return_pct": 6.33,
+          "max_dd_pct": 12.95,
+          "trades": 1507,
+          "trades_per_week": 14.71,
+          "win_rate_pct": 46.6,
+          "profit_factor": 1.02,
+          "expectancy_R": 0.01,
+          "sharpe_approx": 0.28,
+          "avg_win": 38.85,
+          "avg_loss": -33.09,
+          "exit_reasons": {
+            "tp": 331,
+            "stop": 1153,
+            "trend_flip": 14,
+            "daily_limit": 7,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 11947,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 26,
+          "BTC-USDT-SWAP": 27,
+          "WLD-USDT-SWAP": 32,
+          "BNB-USDT-SWAP": 28,
+          "SOL-USDT-SWAP": 24,
+          "SUI-USDT-SWAP": 20,
+          "XAU-USDT-SWAP": 61,
+          "QQQ-USDT-SWAP": 57,
+          "ETH-USDT-SWAP": 23,
+          "XRP-USDT-SWAP": 23,
+          "AAVE-USDT-SWAP": 35,
+          "SPY-USDT-SWAP": 46,
+          "CL-USDT-SWAP": 40,
+          "OKB-USDT-SWAP": 23,
+          "BZ-USDT-SWAP": 47,
+          "DOGE-USDT-SWAP": 17,
+          "LINK-USDT-SWAP": 13
+        }
+      },
+      "pullback_retest": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 11113.97,
+          "return_pct": 11.14,
+          "max_dd_pct": 10.03,
+          "trades": 1034,
+          "trades_per_week": 15.13,
+          "win_rate_pct": 48.3,
+          "profit_factor": 1.06,
+          "expectancy_R": 0.028,
+          "sharpe_approx": 0.59,
+          "avg_win": 38.01,
+          "avg_loss": -33.38,
+          "exit_reasons": {
+            "stop": 664,
+            "tp": 347,
+            "trend_flip": 18,
+            "daily_limit": 2,
+            "end": 3
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 4798,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 10363.07,
+          "return_pct": 3.63,
+          "max_dd_pct": 6.6,
+          "trades": 515,
+          "trades_per_week": 15.08,
+          "win_rate_pct": 49.7,
+          "profit_factor": 1.05,
+          "expectancy_R": 0.043,
+          "sharpe_approx": 0.48,
+          "avg_win": 31.69,
+          "avg_loss": -29.93,
+          "exit_reasons": {
+            "stop": 315,
+            "tp": 195,
+            "trend_flip": 3,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 3331,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 11563.88,
+          "return_pct": 15.64,
+          "max_dd_pct": 10.03,
+          "trades": 1541,
+          "trades_per_week": 15.04,
+          "win_rate_pct": 48.9,
+          "profit_factor": 1.06,
+          "expectancy_R": 0.035,
+          "sharpe_approx": 0.57,
+          "avg_win": 37.16,
+          "avg_loss": -33.53,
+          "exit_reasons": {
+            "stop": 975,
+            "tp": 541,
+            "trend_flip": 21,
+            "daily_limit": 2,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 8129,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "BTC-USDT-SWAP": 27,
+          "QQQ-USDT-SWAP": 49,
+          "SOL-USDT-SWAP": 25,
+          "BNB-USDT-SWAP": 28,
+          "DOGE-USDT-SWAP": 15,
+          "SUI-USDT-SWAP": 36,
+          "XAU-USDT-SWAP": 35,
+          "WLD-USDT-SWAP": 38,
+          "XRP-USDT-SWAP": 30,
+          "ETH-USDT-SWAP": 29,
+          "AAVE-USDT-SWAP": 31,
+          "SPY-USDT-SWAP": 36,
+          "CL-USDT-SWAP": 36,
+          "OKB-USDT-SWAP": 25,
+          "BZ-USDT-SWAP": 36,
+          "LINK-USDT-SWAP": 15,
+          "AVAX-USDT-SWAP": 24
+        }
+      },
+      "regime_switch": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 12282.9,
+          "return_pct": 22.83,
+          "max_dd_pct": 10.59,
+          "trades": 1000,
+          "trades_per_week": 14.64,
+          "win_rate_pct": 47.9,
+          "profit_factor": 1.13,
+          "expectancy_R": 0.061,
+          "sharpe_approx": 1.1,
+          "avg_win": 40.68,
+          "avg_loss": -33.03,
+          "exit_reasons": {
+            "stop": 594,
+            "tp": 241,
+            "trend_flip": 161,
+            "daily_limit": 3,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 4489,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 10192.61,
+          "return_pct": 1.93,
+          "max_dd_pct": 10.09,
+          "trades": 558,
+          "trades_per_week": 16.34,
+          "win_rate_pct": 49.5,
+          "profit_factor": 1.03,
+          "expectancy_R": 0.01,
+          "sharpe_approx": 0.3,
+          "avg_win": 27.89,
+          "avg_loss": -26.62,
+          "exit_reasons": {
+            "stop": 384,
+            "trend_flip": 61,
+            "tp": 110,
+            "daily_limit": 1,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 3209,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 12538.85,
+          "return_pct": 25.39,
+          "max_dd_pct": 10.59,
+          "trades": 1556,
+          "trades_per_week": 15.18,
+          "win_rate_pct": 48.5,
+          "profit_factor": 1.1,
+          "expectancy_R": 0.043,
+          "sharpe_approx": 0.87,
+          "avg_win": 38.39,
+          "avg_loss": -32.93,
+          "exit_reasons": {
+            "stop": 977,
+            "tp": 351,
+            "trend_flip": 222,
+            "daily_limit": 4,
+            "end": 2
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 7700,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "AVAX-USDT-SWAP": 21,
+          "BTC-USDT-SWAP": 28,
+          "WLD-USDT-SWAP": 37,
+          "DOGE-USDT-SWAP": 26,
+          "BNB-USDT-SWAP": 32,
+          "SUI-USDT-SWAP": 28,
+          "ETH-USDT-SWAP": 29,
+          "SOL-USDT-SWAP": 23,
+          "XRP-USDT-SWAP": 24,
+          "OKB-USDT-SWAP": 24,
+          "XAU-USDT-SWAP": 55,
+          "SPY-USDT-SWAP": 38,
+          "QQQ-USDT-SWAP": 45,
+          "AAVE-USDT-SWAP": 37,
+          "CL-USDT-SWAP": 49,
+          "BZ-USDT-SWAP": 45,
+          "LINK-USDT-SWAP": 17
+        }
+      },
+      "mtf_momentum": {
+        "window": {
+          "is_from": "2024-11-17T02:00:00+00:00",
+          "is_to": "2026-03-10T09:00:00+00:00",
+          "oos_from": "2026-03-10T09:00:00+00:00",
+          "oos_to": "2026-11-04T12:00:00+00:00"
+        },
+        "IS": {
+          "final_eq": 8587.71,
+          "return_pct": -14.12,
+          "max_dd_pct": 25.85,
+          "trades": 748,
+          "trades_per_week": 10.95,
+          "win_rate_pct": 39.3,
+          "profit_factor": 0.89,
+          "expectancy_R": -0.036,
+          "sharpe_approx": -0.65,
+          "avg_win": 37.05,
+          "avg_loss": -27.11,
+          "exit_reasons": {
+            "trend_flip": 294,
+            "stop": 349,
+            "tp": 92,
+            "daily_limit": 12,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1527,
+          "halted": false
+        },
+        "OOS": {
+          "final_eq": 9810.43,
+          "return_pct": -1.9,
+          "max_dd_pct": 14.84,
+          "trades": 503,
+          "trades_per_week": 14.73,
+          "win_rate_pct": 39.2,
+          "profit_factor": 0.97,
+          "expectancy_R": -0.0,
+          "sharpe_approx": -0.11,
+          "avg_win": 35.96,
+          "avg_loss": -23.77,
+          "exit_reasons": {
+            "trend_flip": 212,
+            "stop": 220,
+            "tp": 67,
+            "daily_limit": 3,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 1008,
+          "halted": false
+        },
+        "FULL": {
+          "final_eq": 8440.32,
+          "return_pct": -15.6,
+          "max_dd_pct": 26.15,
+          "trades": 1250,
+          "trades_per_week": 12.2,
+          "win_rate_pct": 39.3,
+          "profit_factor": 0.92,
+          "expectancy_R": -0.021,
+          "sharpe_approx": -0.47,
+          "avg_win": 34.59,
+          "avg_loss": -24.43,
+          "exit_reasons": {
+            "trend_flip": 506,
+            "stop": 569,
+            "tp": 159,
+            "daily_limit": 15,
+            "end": 1
+          },
+          "chase_blocks": 0,
+          "signal_cand_bars": 2534,
+          "halted": false
+        },
+        "oos_trades_by_inst": {
+          "OKB-USDT-SWAP": 69,
+          "WLD-USDT-SWAP": 41,
+          "AAVE-USDT-SWAP": 44,
+          "QQQ-USDT-SWAP": 47,
+          "CL-USDT-SWAP": 50,
+          "LINK-USDT-SWAP": 40,
+          "SOL-USDT-SWAP": 52,
+          "BZ-USDT-SWAP": 35,
+          "AVAX-USDT-SWAP": 42,
+          "DOGE-USDT-SWAP": 31,
+          "BNB-USDT-SWAP": 52
+        }
+      }
+    }
+  }
+}

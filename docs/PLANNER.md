@@ -89,7 +89,8 @@ instruments, ~2–3 min, ~2 MB). Use `--inst` to focus.
 Actions:
 - `open`: `instId, market ("swap"|"spot"), side ("long"|"short"; spot long only), size` = exactly one of
   `{"risk_usdt"}` / `{"notional_usdt"}` / `{"contracts"}`, `leverage` (int, swap, default 1), `stop`
-  (required, absolute), `take_profit` (optional), `order_type` (`market` default | `limit` + `limit_px`).
+  (required, absolute), `take_profit` (optional), `order_type` (`market` default | `limit` + `limit_px`),
+  optional `signal` (`pullback_retest` | `mm_glitch`), optional `risk_mult` (0–1 soft-daily size scaler).
 - `close`: `instId, reason`, and `fraction` (0<f≤1, default 1) **or** `size` (base qty / contracts).
 - `amend_sl`: `instId, stop`. `amend_tp`: `instId, take_profit` (`null` removes the TP).
 - `cancel`: `instId` and exactly one of `ordId` / `clOrdId` / `algoId` (must be pending on that instrument).
@@ -119,6 +120,25 @@ reasons[], order, result, risk_gate{decision,reasons,details}?}]` plus the journ
 was rejected/failed.
 
 If information is insufficient or the plan expired: do not trade — journal a `--no-trade` decision.
+
+
+## Entry policy: pullback / limit retest (DEMO, since 2026-11-06)
+
+Preferred open style after `docs/BACKTEST_2026-11-04.md` (OOS crypto-12 **+5.4%**, DD 11.9%).
+
+1. When snapshot `instruments[inst].pullback.status` is `armed` or `retest_ready` (also listed in
+   top-level `pullback_arms[]`), **do not market-chase**. Open with
+   `signal: "pullback_retest"`, `order_type: "limit"`, `limit_px` ≈ `pullback.limit_px`
+   (Donchian break or 1H EMA20), stop/TP from C7 geometry (or `pullback.stop` / `pullback.tp`).
+2. Arm lifetime ≈ `PULLBACK_WAIT_H` (12h). If `extended_chase` is true, market opens for that
+   side are rejected — wait for the retest or skip.
+3. **Daily C7 / daily trend is a size scaler only** (align 1.0×, flat 0.7×, against 0.4×). It is
+   **not** a hard veto. Validation applies `risk_mult` to the per-trade risk cap; you may also set
+   `risk_mult` on the action.
+4. Keep existing kill / `risk_gate`: 2% daily kill, 3-loss 24h pause, 0.5% slip pause, 0.5%
+   no-chase, 900s stale, correlation groups. Do not loosen anti-chase to force market entries.
+5. Snapshot `guardrails.entry_policy` restates this. Regime-switch mean-reversion is **not**
+   wired yet (optional add-on later).
 
 ## Decision journal `data/decision_journal.jsonl`
 

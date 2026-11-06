@@ -43,3 +43,9 @@ Checks (all configurable):
 - Decision journal action rows include `risk_gate`.
 
 DEMO only — live trading remains disabled in this build (`config.DEMO`).
+
+## Pullback size scaler (not a kill)
+
+Daily trend alignment scales **risk budget** for `pullback_retest` / armed opens
+(`PULLBACK_DAILY_ALIGN/FLAT/AGAINST` = 1.0 / 0.7 / 0.4). It never sets `can_open=false` by itself.
+Market opens while a same-side arm is `extended_chase` are rejected in plan validation.

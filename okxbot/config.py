@@ -191,5 +191,17 @@ CORRELATION_GROUPS = {
     "crude": ["CL", "BZ"],
     "gold": ["XAU"],
 }
+# ---- Pullback / limit retest entry (DEMO planner, 2026-11-06; BACKTEST_2026-11-04) ----
+# C7 or breakout arms a level; enter only on retest via limit (no market chase).
+# Daily trend is a SIZE SCALER only — never a hard veto for these entries.
+PULLBACK_ENABLED = True
+PULLBACK_WAIT_H = 12                 # arm lifetime in 1H bars / hours
+PULLBACK_ZONE_ATR = 0.4              # retest zone = ±0.4 * ATR around level / EMA20
+PULLBACK_DAILY_ALIGN = 1.0           # soft daily: signal agrees with daily trend
+PULLBACK_DAILY_FLAT = 0.7            # soft daily: daily flat
+PULLBACK_DAILY_AGAINST = 0.4         # soft daily: daily against (still allowed)
+PULLBACK_REQUIRE_LIMIT = True        # signal=pullback_retest opens must be order_type=limit
+PULLBACK_BLOCK_MARKET_WHEN_ARMED = True  # refuse market opens while arm active & price extended
+
 # Intents that count toward consecutive-loss kill (smoke / manual excluded).
 KILL_STRATEGY_INTENTS = ("trend", "planner", "funding_harvest", "spot_too_thin", "")

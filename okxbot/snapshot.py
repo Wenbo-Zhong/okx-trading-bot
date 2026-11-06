@@ -18,7 +18,7 @@ import tempfile
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
-from okxbot import config, events, indicators, liqmap, news, sizing, strategy
+from okxbot import config, events, indicators, liqmap, news, pullback, sizing, strategy
 from okxbot.risk import guardrail_status, kill_status_lines, active_entry_blocks
 
 UTC = dt.timezone.utc
@@ -192,6 +192,11 @@ def fetch_instrument(client, inst_id, specs, ticks, marks, now, errors):
         out["candles"][bar] = result[0] if result else None
         frames[bar] = result[1] if result else None
     out["c7"] = attempt(errors, f"{inst_id} c7", lambda: c7_reference(frames["1H"]))
+    out["pullback"] = attempt(
+        errors, f"{inst_id} pullback",
+        lambda: pullback.compute_pullback_view(frames["1H"]),
+        {"enabled": bool(getattr(config, "PULLBACK_ENABLED", True)), "status": "none",
+         "reason": "pullback view unavailable"})
     if market == "swap":
         out["liq_clusters"] = attempt(errors, f"{inst_id} liqmap", lambda: fetch_clusters(client, inst_id, frames["1H"]))
     return out
@@ -388,10 +393,30 @@ def build_snapshot(client, inst=None, no_news=False, now=None, state=None, news_
     event_ok = len(errors) == before
     candidates = [{"instId": i, "side": "long" if d["c7"]["signal"] == 1 else "short", "strength": d["c7"]["strength"]}
                   for i, d in instruments.items() if d and d.get("c7") and d["c7"]["signal"]]
+    pullback_arms = []
+    for i, d in instruments.items():
+        if not d:
+            continue
+        pb = d.get("pullback") or {}
+        if pb.get("status") in ("armed", "retest_ready"):
+            pullback_arms.append({"instId": i, **{k: pb.get(k) for k in
+                ("status", "side", "level", "limit_px", "risk_mult", "daily_trend",
+                 "hours_left", "extended_chase", "stop", "tp", "reason")}})
+    guards["entry_policy"] = {
+        "style": "pullback_limit_retest" if getattr(config, "PULLBACK_ENABLED", True) else "planner_discretion",
+        "pullback_wait_h": getattr(config, "PULLBACK_WAIT_H", 12),
+        "pullback_zone_atr": getattr(config, "PULLBACK_ZONE_ATR", 0.4),
+        "daily_as": "size_scaler_only",
+        "daily_mult": {"align": getattr(config, "PULLBACK_DAILY_ALIGN", 1.0),
+                       "flat": getattr(config, "PULLBACK_DAILY_FLAT", 0.7),
+                       "against": getattr(config, "PULLBACK_DAILY_AGAINST", 0.4)},
+        "note": "Prefer limit retest when pullback_arms non-empty; do not hard-veto on soft daily; keep kill/no-chase.",
+    }
     return finalize({"schema": "okxbot.snapshot/v1", "generated_at": iso(now),
                      "generated_at_local": now.astimezone(ZoneInfo("Asia/Shanghai")).isoformat(), "demo": True,
                      "account": account, "account_available": account_ok, "guardrails": guards,
                      "instruments": instruments, "news": news_items, "events": macro, "c7_reference": candidates,
+                     "pullback_arms": pullback_arms,
                      "completeness": {"account": account_ok, "market": market_ok,
                                       "news": not no_news and not news_errors, "events": event_ok}, "errors": errors})
 
@@ -430,7 +455,10 @@ def render_view(snapshot):
             lines.append(f"{inst}: unavailable")
             continue
         c7 = data.get("c7") or {}
-        lines.append(f"{inst} {data['market']} last={data['last']} mark={data['mark']} C7(ref)={c7.get('signal')}")
+        pb = data.get("pullback") or {}
+        pb_s = pb.get("status") or "none"
+        extra = f" pullback={pb_s}" + (f"@{pb.get('limit_px')} x{pb.get('risk_mult')}" if pb_s != "none" else "")
+        lines.append(f"{inst} {data['market']} last={data['last']} mark={data['mark']} C7(ref)={c7.get('signal')}{extra}")
     for p in (snapshot["account"] or {}).get("positions", []):
         lines.append(f"POSITION {p['instId']} {p['side']} size={p['size']} avg={p['avg_px']} upl={p['upl']}")
     lines += [f"NEWS {n['published_at']} {n['source']}: {n['title']}" for n in snapshot["news"]]

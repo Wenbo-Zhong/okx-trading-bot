@@ -16,7 +16,7 @@ from okxbot import config, sizing, journal_log as J
 from okxbot.review import normalize_review
 from okxbot.bot import Bot, clamp_sl_trigger, fmt_px, load_state, save_state
 from okxbot.risk import guardrail_status, note_entry_slippage, note_strategy_close, kill_status_lines
-from okxbot import risk_gate
+from okxbot import risk_gate, pullback
 from okxbot.spot import SpotManager
 
 
@@ -371,7 +371,8 @@ def validate_action(a, snapshot, state, reserved=None):
         raise ValueError('MAX_POSITIONS reached')
     lev = a.get('leverage', 1)
     mm = a.get('signal') == 'mm_glitch'
-    if 'signal' in a and a['signal'] not in (None, 'mm_glitch'):
+    is_pullback = a.get('signal') == 'pullback_retest' or a.get('entry_style') == 'pullback'
+    if 'signal' in a and a['signal'] not in (None, 'mm_glitch', 'pullback_retest'):
         raise ValueError('unknown signal tag')
     lev_cap = config.MM_GLITCH_MAX_LEVERAGE if mm else config.MAX_LEVERAGE
     if type(lev) is not int or not 1 <= lev <= lev_cap or (market == 'spot' and lev != 1):
@@ -382,6 +383,18 @@ def validate_action(a, snapshot, state, reserved=None):
     order_type = a.get('order_type', 'market')
     if order_type not in ('market', 'limit'):
         raise ValueError('invalid order_type')
+    pb = data.get('pullback') or {}
+    # Pullback/retest opens must be limits (no market chase). Soft daily is size-only — never a hard veto here.
+    if is_pullback and getattr(config, 'PULLBACK_REQUIRE_LIMIT', True) and order_type != 'limit':
+        raise ValueError('pullback_retest requires order_type=limit (no market chase)')
+    if (getattr(config, 'PULLBACK_BLOCK_MARKET_WHEN_ARMED', True)
+            and order_type == 'market'
+            and pb.get('status') in ('armed', 'retest_ready')
+            and pb.get('side') == a.get('side')
+            and pb.get('extended_chase')):
+        raise ValueError('pullback arm active and price extended — use limit retest, not market')
+    if order_type == 'limit' and a.get('limit_px') is None and pb.get('limit_px') is not None and is_pullback:
+        a = dict(a, limit_px=pb['limit_px'])
     entry = float(fmt_px(positive(a.get('limit_px')), tick)) if order_type == 'limit' else px
     stop = target
     distance = (entry - stop) * side
@@ -400,9 +413,16 @@ def validate_action(a, snapshot, state, reserved=None):
     if not isinstance(size, dict) or len(size) != 1 or next(iter(size)) not in ('risk_usdt', 'notional_usdt', 'contracts'):
         raise ValueError('size requires exactly one of risk_usdt/notional_usdt/contracts')
     units = float(spec.get('ctVal') or 1) * float(spec.get('ctMult') or 1) if market == 'swap' else 1
-    cap = equity * (config.SPOT_RISK_PER_TRADE if market == 'spot' else config.RISK_PER_TRADE)
+    base_cap = equity * (config.SPOT_RISK_PER_TRADE if market == 'spot' else config.RISK_PER_TRADE)
+    # Soft daily / pullback size scaler (align 1.0, flat 0.7, against 0.4). Not a hard veto.
+    risk_mult = 1.0
+    if is_pullback or pb.get('status') in ('armed', 'retest_ready'):
+        risk_mult = pullback.risk_mult_for_action(a, pb)
+    cap = base_cap * risk_mult
     key, value = next(iter(size.items()))
     value, notes = positive(value), []
+    if risk_mult < 1.0 - 1e-12:
+        notes.append(f'pullback soft-daily risk_mult={risk_mult:g} (size scaler only, not a veto)')
     if key == 'risk_usdt':
         if value > cap:
             notes.append('risk_usdt clamped to per-trade cap')
